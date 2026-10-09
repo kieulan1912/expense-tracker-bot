@@ -66,7 +66,7 @@ Hãy dùng đúng chế độ mà Botkeep cung cấp trong thông tin kết nố
 Thiết lập build/start command nếu Botkeep yêu cầu:
 
 ```text
-Build command: npm install
+Build command: npm ci
 Start command: npm start
 ```
 

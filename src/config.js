@@ -36,7 +36,7 @@ function createSslConfig(mode) {
   }
 }
 
-const port = Number(process.env.PORT || 3000);
+const port = Number(process.env.SERVER_PORT || process.env.PORT || 3000);
 
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error('PORT không hợp lệ');
