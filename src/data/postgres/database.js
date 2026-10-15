@@ -1,19 +1,19 @@
 const { Pool } = require('pg');
-const { config } = require('./config');
 
-const pool = new Pool({
-  connectionString: config.databaseUrl,
-  ssl: config.databaseSsl,
-  max: 5,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
-});
+function createDatabase(config) {
+  const pool = new Pool({
+    connectionString: config.databaseUrl,
+    ssl: config.databaseSsl,
+    max: 5,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+  });
 
-pool.on('error', (error) => {
-  console.error('PostgreSQL pool error:', error);
-});
+  pool.on('error', (error) => {
+    console.error('PostgreSQL pool error:', error);
+  });
 
-async function initializeDatabase() {
+  async function initializeDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS financial_transactions (
       id BIGSERIAL PRIMARY KEY,
@@ -394,7 +394,10 @@ async function initializeDatabase() {
     ON recurring_transactions (ledger_id, active, day_of_month)
   `);
 
-  await pool.query('SELECT NOW()');
+    await pool.query('SELECT NOW()');
+  }
+
+  return { pool, initializeDatabase };
 }
 
-module.exports = { pool, initializeDatabase };
+module.exports = { createDatabase };

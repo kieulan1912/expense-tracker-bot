@@ -1,6 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { formatMonthlyReport, createChartUrl, formatBudgetStatus } = require('../src/report_service');
+const {
+  formatMonthlyReport,
+  createChartUrl,
+  formatBudgetStatus,
+} = require('../src/domain/services/report_service');
 
 const rows = [
   { transaction_type: 'income', category: 'Lương', total: 10_000_000 },

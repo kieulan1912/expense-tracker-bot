@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createPending, consumePending, cancelPending } = require('../src/pending_store');
+const { createPendingStore } = require('../src/infrastructure/stores/pending_store');
+
+const { createPending, consumePending, cancelPending } = createPendingStore();
 
 test('pending chỉ được dùng một lần và đúng user', () => {
   const token = createPending(1, { value: 42 });

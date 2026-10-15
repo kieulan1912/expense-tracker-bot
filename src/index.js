@@ -1,11 +1,13 @@
-const { config } = require('./config');
-const { pool, initializeDatabase } = require('./database');
-const { createBot } = require('./presentation/telegram/create_bot');
-const { createHealthServer } = require('./server');
-const { startScheduler } = require('./scheduler');
+const { createApplication } = require('./infrastructure/composition_root');
 
-const server = createHealthServer();
-const bot = createBot();
+const {
+  config,
+  pool,
+  initializeDatabase,
+  bot,
+  server,
+  startScheduler,
+} = createApplication();
 let isShuttingDown = false;
 let stopScheduler = () => {};
 

@@ -1,5 +1,7 @@
 const TTL_MS = 10 * 60 * 1000;
-const pending = new Map();
+
+function createPendingStore() {
+  const pending = new Map();
 
 function createPending(userId, payload) {
   const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -21,4 +23,7 @@ function cancelPending(token, userId) {
   return true;
 }
 
-module.exports = { createPending, consumePending, cancelPending };
+  return { createPending, consumePending, cancelPending };
+}
+
+module.exports = { createPendingStore };

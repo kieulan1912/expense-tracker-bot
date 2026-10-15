@@ -1,4 +1,4 @@
-const { InputError } = require('../errors');
+const { InputError } = require('../domain/errors');
 
 function getCommandArguments(text, command) {
   const expression = new RegExp(`^/${command}(?:@\\w+)?\\s*`, 'i');

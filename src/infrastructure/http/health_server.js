@@ -1,7 +1,6 @@
 const http = require('http');
-const { pool } = require('./database');
 
-function createHealthServer() {
+function createHealthServer({ checkReadiness }) {
   return http.createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json; charset=utf-8');
 
@@ -13,7 +12,7 @@ function createHealthServer() {
 
     if (request.url === '/ready') {
       try {
-        await pool.query('SELECT 1');
+        await checkReadiness();
         response.writeHead(200);
         response.end(JSON.stringify({ status: 'ready' }));
       } catch (error) {

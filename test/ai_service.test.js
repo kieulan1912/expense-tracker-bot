@@ -3,7 +3,7 @@ process.env.DATABASE_URL = 'postgresql://test:test@localhost/test';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { validateResult } = require('../src/ai_service');
+const { validateResult } = require('../src/domain/services/ai_result_validator');
 
 test('validateResult chuẩn hóa giao dịch AI', () => {
   const result = validateResult({

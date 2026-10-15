@@ -1,4 +1,4 @@
-const { InputError } = require('../errors');
+const { InputError } = require('../domain/errors');
 
 function parseAmount(input) {
   const value = String(input || '')

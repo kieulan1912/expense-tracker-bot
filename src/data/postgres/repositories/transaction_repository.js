@@ -1,5 +1,6 @@
-const { pool } = require('./database');
-const { getCategoryName } = require('./utils/category');
+const { getCategoryName } = require('../../../utils/category');
+
+function createTransactionRepository(pool) {
 
 function mapTransaction(row) {
   if (!row) return null;
@@ -189,7 +190,7 @@ async function deleteAllUserData(userId) {
   }
 }
 
-module.exports = {
+  return {
   createTransaction,
   createTransactions,
   getMonthlySummary,
@@ -198,4 +199,7 @@ module.exports = {
   deleteTransaction,
   getSpendingBetween,
   deleteAllUserData,
-};
+  };
+}
+
+module.exports = { createTransactionRepository };

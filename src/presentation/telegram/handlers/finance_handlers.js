@@ -1,24 +1,4 @@
-const { InputError } = require('../../../errors');
-const { config } = require('../../../config');
-const {
-  createTransaction,
-  getMonthlySummary,
-  getMonthlyTransactions,
-  getRecentTransactions,
-  deleteTransaction,
-} = require('../../../transaction_repository');
-const {
-  upsertBudget,
-  getBudgetStatus,
-  createDebt,
-  payDebt,
-  getOpenDebts,
-  createRecurring,
-  getRecurring,
-  deleteRecurring,
-  getExpenseStats,
-} = require('../../../finance_repository');
-const { getUser } = require('../../../user_repository');
+const { InputError } = require('../../../domain/errors');
 const { parseAmount, formatMoney } = require('../../../utils/amount');
 const { detectCategoryId, getCategoryName } = require('../../../utils/category');
 const {
@@ -32,7 +12,7 @@ const {
   formatMonthlyReport,
   createChartUrl,
   formatBudgetStatus,
-} = require('../../../report_service');
+} = require('../../../domain/services/report_service');
 const { requireWritableLedger } = require('../context');
 const {
   helpMessage,
@@ -42,19 +22,26 @@ const {
   showMainMenu,
 } = require('../views');
 
-async function getBudgetWarning(ledgerId) {
-  const { month, year } = getCurrentMonth(config.timezone);
-  const rows = await getBudgetStatus({ ledgerId, month, year, timezone: config.timezone });
-  const warnings = [];
-  for (const row of rows) {
-    const ratio = Number(row.spent) / Number(row.amount);
-    if (ratio < 0.8) continue;
-    const label = row.category_id === null ? 'tổng ngân sách' : getCategoryName(row.category_id);
-    warnings.push(ratio >= 1
-      ? `🚨 Bạn đã vượt ${label} ${formatMoney(Number(row.spent) - Number(row.amount))}.`
-      : `⚠️ Bạn đã dùng ${Math.round(ratio * 100)}% ${label}.`);
-  }
-  return warnings.join('\n');
+function createBudgetWarning({ config, finance }) {
+  return async function getBudgetWarning(ledgerId) {
+    const { month, year } = getCurrentMonth(config.timezone);
+    const rows = await finance.getBudgetStatus({
+      ledgerId,
+      month,
+      year,
+      timezone: config.timezone,
+    });
+    const warnings = [];
+    for (const row of rows) {
+      const ratio = Number(row.spent) / Number(row.amount);
+      if (ratio < 0.8) continue;
+      const label = row.category_id === null ? 'tổng ngân sách' : getCategoryName(row.category_id);
+      warnings.push(ratio >= 1
+        ? `🚨 Bạn đã vượt ${label} ${formatMoney(Number(row.spent) - Number(row.amount))}.`
+        : `⚠️ Bạn đã dùng ${Math.round(ratio * 100)}% ${label}.`);
+    }
+    return warnings.join('\n');
+  };
 }
 
 function parseDate(input) {
@@ -72,7 +59,32 @@ function parseDate(input) {
   return iso;
 }
 
-function registerFinanceHandlers(bot) {
+function registerFinanceHandlers(bot, {
+  config,
+  transactions,
+  finance,
+  users,
+  getBudgetWarning = createBudgetWarning({ config, finance }),
+}) {
+  const {
+    createTransaction,
+    getMonthlySummary,
+    getMonthlyTransactions,
+    getRecentTransactions,
+    deleteTransaction,
+  } = transactions;
+  const {
+    upsertBudget,
+    getBudgetStatus,
+    createDebt,
+    payDebt,
+    getOpenDebts,
+    createRecurring,
+    getRecurring,
+    deleteRecurring,
+    getExpenseStats,
+  } = finance;
+  const { getUser } = users;
   async function handleCreateTransaction(ctx, type, command) {
     const ledger = requireWritableLedger(ctx);
     const { amountText, description } = parseTransactionInput(ctx.message.text, command);
@@ -289,4 +301,4 @@ function registerFinanceHandlers(bot) {
   });
 }
 
-module.exports = { registerFinanceHandlers, getBudgetWarning };
+module.exports = { registerFinanceHandlers, createBudgetWarning };

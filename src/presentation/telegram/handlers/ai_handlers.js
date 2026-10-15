@@ -1,36 +1,31 @@
 const { Markup } = require('telegraf');
-const { InputError } = require('../../../errors');
-const { config } = require('../../../config');
-const {
-  createTransaction,
-  createTransactions,
-  getMonthlySummary,
-  getRecentTransactions,
-  deleteTransaction,
-} = require('../../../transaction_repository');
-const {
-  upsertBudget,
-  createDebt,
-  getRecurringById,
-} = require('../../../finance_repository');
-const { getLedgerAccess } = require('../../../ledger_repository');
-const { getUser, updatePreference } = require('../../../user_repository');
-const { analyzeText, analyzeImage } = require('../../../ai_service');
-const { createPending, consumePending, cancelPending } = require('../../../pending_store');
+const { InputError } = require('../../../domain/errors');
 const { formatMoney } = require('../../../utils/amount');
 const { getCategoryName } = require('../../../utils/category');
 const { getCurrentMonth } = require('../../../utils/month');
 const { resolveImageMime, looksLikeSupportedImage } = require('../../../utils/image');
-const { formatMonthlyReport } = require('../../../report_service');
+const { formatMonthlyReport } = require('../../../domain/services/report_service');
 const { requireWritableLedger } = require('../context');
 const {
   transactionLines,
   sendSaved,
   formatRecentTransactions,
 } = require('../views');
-const { getBudgetWarning } = require('./finance_handlers');
 
-async function saveAiResult(ctx, result, source) {
+async function saveAiResult(ctx, result, source, dependencies) {
+  const {
+    config,
+    transactions,
+    finance,
+    pendingStore,
+    getBudgetWarning,
+  } = dependencies;
+  const {
+    createTransactions,
+    getMonthlySummary,
+    getRecentTransactions,
+  } = transactions;
+  const { createPending } = pendingStore;
   if (result.intent === 'HISTORY_REQ') {
     const limit = result.limit || 10;
     const rows = await getRecentTransactions({
@@ -135,8 +130,8 @@ async function saveAiResult(ctx, result, source) {
   );
 }
 
-async function requestOcrConsent(ctx) {
-  const user = await getUser(ctx.from.id);
+async function requestOcrConsent(ctx, users) {
+  const user = await users.getUser(ctx.from.id);
   if (!user?.ocr_consent) {
     await ctx.reply(
       '🔐 Ảnh sẽ được gửi tới Gemini để đọc và không được lưu lại. Bạn có đồng ý không? Sau khi đồng ý, hãy gửi lại ảnh.',
@@ -150,9 +145,14 @@ async function requestOcrConsent(ctx) {
   return true;
 }
 
-async function handleOcrImage(ctx, { fileId, fileSize, declaredMime, filename }) {
+async function handleOcrImage(
+  ctx,
+  { fileId, fileSize, declaredMime, filename },
+  dependencies,
+) {
+  const { config, users, ai } = dependencies;
   requireWritableLedger(ctx);
-  if (!(await requestOcrConsent(ctx))) return;
+  if (!(await requestOcrConsent(ctx, users))) return;
   if (fileSize && fileSize > config.ocrMaxImageMb * 1024 * 1024) {
     throw new InputError(`Ảnh quá lớn. Vui lòng gửi ảnh dưới ${config.ocrMaxImageMb} MB.`);
   }
@@ -169,16 +169,36 @@ async function handleOcrImage(ctx, { fileId, fileSize, declaredMime, filename })
   if (!mimeType) {
     throw new InputError('Bot chỉ hỗ trợ ảnh JPEG, PNG, WebP, HEIC hoặc HEIF.');
   }
-  const result = await analyzeImage({
+  const result = await ai.analyzeImage({
     userId: ctx.from.id,
     imageBuffer: buffer,
     mimeType,
     timezone: config.timezone,
   });
-  return saveAiResult(ctx, result, 'ocr');
+  return saveAiResult(ctx, result, 'ocr', dependencies);
 }
 
-function registerAiHandlers(bot, { handleLedgerTextInput }) {
+function registerAiHandlers(bot, dependencies) {
+  const {
+    config,
+    transactions,
+    finance,
+    ledgers,
+    users,
+    ai,
+    pendingStore,
+    handleLedgerTextInput,
+  } = dependencies;
+  const {
+    createTransaction,
+    createTransactions,
+    deleteTransaction,
+  } = transactions;
+  const { upsertBudget, createDebt, getRecurringById } = finance;
+  const { getLedgerAccess } = ledgers;
+  const { getUser, updatePreference } = users;
+  const { createPending, consumePending, cancelPending } = pendingStore;
+
   bot.on('photo', async (ctx) => {
     const photo = ctx.message.photo.at(-1);
     await handleOcrImage(ctx, {
@@ -186,7 +206,7 @@ function registerAiHandlers(bot, { handleLedgerTextInput }) {
       fileSize: photo.file_size,
       declaredMime: 'image/jpeg',
       filename: 'telegram-photo.jpg',
-    });
+    }, dependencies);
   });
   bot.on('document', async (ctx) => {
     const document = ctx.message.document;
@@ -202,7 +222,7 @@ function registerAiHandlers(bot, { handleLedgerTextInput }) {
       fileSize: document.file_size,
       declaredMime: document.mime_type,
       filename: document.file_name,
-    });
+    }, dependencies);
   });
   bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
@@ -210,13 +230,13 @@ function registerAiHandlers(bot, { handleLedgerTextInput }) {
     await ctx.sendChatAction('typing');
     try {
       const user = await getUser(ctx.from.id);
-      const result = await analyzeText({
+      const result = await ai.analyzeText({
         userId: ctx.from.id,
         text: ctx.message.text,
         timezone: config.timezone,
         personality: user?.personality,
       });
-      await saveAiResult(ctx, result, 'ai');
+      await saveAiResult(ctx, result, 'ai', dependencies);
     } catch (error) {
       if (error instanceof InputError) throw error;
       console.error('AI text error:', error.message);

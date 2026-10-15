@@ -1,4 +1,4 @@
-const { pool } = require('./database');
+function createFinanceRepository(pool) {
 
 async function upsertBudget({ userId, ledgerId, categoryId, amount, month, year }) {
   const result = categoryId === null
@@ -210,7 +210,7 @@ async function getRecurringById({ userId, recurringId }) {
   return result.rows[0] || null;
 }
 
-module.exports = {
+  return {
   upsertBudget,
   getBudgets,
   getBudgetStatus,
@@ -226,4 +226,7 @@ module.exports = {
   getExpenseStats,
   getDueDebts,
   markDebtReminded,
-};
+  };
+}
+
+module.exports = { createFinanceRepository };

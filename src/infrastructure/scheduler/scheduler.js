@@ -1,14 +1,18 @@
 const { Markup } = require('telegraf');
-const { config } = require('./config');
-const {
-  getDueRecurring, markRecurringPrompted, getDueDebts, markDebtReminded,
-} = require('./finance_repository');
-const { getReminderUsers } = require('./user_repository');
-const { getMonthlySummary } = require('./transaction_repository');
-const { formatMonthlyReport } = require('./report_service');
-const { formatMoney } = require('./utils/amount');
+const { formatMonthlyReport } = require('../../domain/services/report_service');
+const { formatMoney } = require('../../utils/amount');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+function createScheduler({ config, finance, users, transactions }) {
+  const {
+    getDueRecurring,
+    markRecurringPrompted,
+    getDueDebts,
+    markDebtReminded,
+  } = finance;
+  const { getReminderUsers } = users;
+  const { getMonthlySummary } = transactions;
 
 function localDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -84,4 +88,7 @@ function startScheduler(telegram) {
   return () => { clearTimeout(timeout); if (interval) clearInterval(interval); };
 }
 
-module.exports = { startScheduler, runDailyJobs, localDateParts };
+  return { startScheduler, runDailyJobs, localDateParts };
+}
+
+module.exports = { createScheduler };

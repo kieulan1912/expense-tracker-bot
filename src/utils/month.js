@@ -1,4 +1,4 @@
-const { InputError } = require('../errors');
+const { InputError } = require('../domain/errors');
 
 function getCurrentMonth(timezone) {
   const { month, year } = getCurrentDateParts(timezone);

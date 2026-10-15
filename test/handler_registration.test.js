@@ -1,14 +1,20 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-process.env.TELEGRAM_BOT_TOKEN ||= '000000000:test-token';
-process.env.DATABASE_URL ||= 'postgresql://test:test@localhost:5432/test';
-process.env.DB_SSL ||= 'disable';
-
-const { registerLedgerHandlers } = require('../src/presentation/telegram/handlers/ledger_handlers');
-const { registerFinanceHandlers } = require('../src/presentation/telegram/handlers/finance_handlers');
-const { registerMenuHandlers } = require('../src/presentation/telegram/handlers/menu_handlers');
-const { registerAiHandlers } = require('../src/presentation/telegram/handlers/ai_handlers');
+const { createBot } = require('../src/presentation/telegram/create_bot');
+const {
+  transactionRepositoryMethods,
+} = require('../src/domain/repositories/transaction_repository_contract');
+const {
+  financeRepositoryMethods,
+} = require('../src/domain/repositories/finance_repository_contract');
+const {
+  ledgerRepositoryMethods,
+} = require('../src/domain/repositories/ledger_repository_contract');
+const {
+  userRepositoryMethods,
+} = require('../src/domain/repositories/user_repository_contract');
+const { aiGatewayMethods } = require('../src/domain/repositories/ai_gateway_contract');
 
 class FakeBot {
   constructor() {
@@ -27,14 +33,39 @@ class FakeBot {
   start() { this.lifecycle.push('start'); }
 
   help() { this.lifecycle.push('help'); }
+
+  use() {}
+
+  catch() {}
+}
+
+function stubPort(methods) {
+  return Object.fromEntries(methods.map((method) => [method, async () => null]));
 }
 
 test('composition đăng ký đủ command và event sau refactor', () => {
   const bot = new FakeBot();
-  const handleLedgerTextInput = registerLedgerHandlers(bot);
-  registerFinanceHandlers(bot);
-  registerMenuHandlers(bot, { forgetUser() {} });
-  registerAiHandlers(bot, { handleLedgerTextInput });
+  createBot({
+    config: {
+      telegramBotToken: '000000000:test-token',
+      allowedUserIds: new Set(),
+      botRateLimitPerMinute: 30,
+      timezone: 'Asia/Ho_Chi_Minh',
+    },
+    useCases: {
+      transactions: stubPort(transactionRepositoryMethods),
+      finance: stubPort(financeRepositoryMethods),
+      ledgers: stubPort(ledgerRepositoryMethods),
+      users: stubPort(userRepositoryMethods),
+      ai: stubPort(aiGatewayMethods),
+    },
+    pendingStore: {
+      createPending() {},
+      consumePending() {},
+      cancelPending() {},
+    },
+    bot,
+  });
 
   assert.deepEqual(new Set(bot.commands), new Set([
     'taoso', 'moi', 'thamgia', 'danhsachso', 'chonso', 'thanhvien',

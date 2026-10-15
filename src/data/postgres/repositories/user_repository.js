@@ -1,5 +1,4 @@
-const { pool } = require('./database');
-const { config } = require('./config');
+function createUserRepository(pool, config) {
 
 async function ensureUser({ userId, chatId, displayName = null, username = null }) {
   const client = await pool.connect();
@@ -76,4 +75,7 @@ async function getReminderUsers() {
   return result.rows;
 }
 
-module.exports = { ensureUser, getUser, updatePreference, getReminderUsers };
+  return { ensureUser, getUser, updatePreference, getReminderUsers };
+}
+
+module.exports = { createUserRepository };

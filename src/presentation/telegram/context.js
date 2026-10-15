@@ -1,7 +1,4 @@
-const { config } = require('../../config');
-const { InputError } = require('../../errors');
-const { ensureUser, getUser } = require('../../user_repository');
-const { hasSharedAccess, getActiveLedger } = require('../../ledger_repository');
+const { InputError } = require('../../domain/errors');
 const { canWriteLedger, canManageLedger } = require('../../domain/ledger_policy');
 
 function telegramDisplayName(from) {
@@ -10,7 +7,7 @@ function telegramDisplayName(from) {
     || String(from.id);
 }
 
-function createContextMiddleware() {
+function createContextMiddleware({ config, users, ledgers }) {
   const initializedUsers = new Set();
   const rateWindows = new Map();
 
@@ -21,7 +18,7 @@ function createContextMiddleware() {
     if (config.allowedUserIds.size > 0 && !config.allowedUserIds.has(userId)) {
       const text = ctx.message?.text || '';
       const mayRequestAccess = /^\/thamgia(?:@\w+)?(?:\s|$)/i.test(text);
-      if (!mayRequestAccess && !(await hasSharedAccess(userId))) {
+      if (!mayRequestAccess && !(await ledgers.hasSharedAccess(userId))) {
         await ctx.reply(
           '⛔ Bạn chưa có quyền sử dụng bot. Nếu có mã mời, hãy gửi /thamgia MA_MOI.',
         );
@@ -44,7 +41,7 @@ function createContextMiddleware() {
     }
 
     if (!initializedUsers.has(userId)) {
-      await ensureUser({
+      await users.ensureUser({
         userId,
         chatId: ctx.chat?.id || ctx.from.id,
         displayName: telegramDisplayName(ctx.from),
@@ -53,7 +50,7 @@ function createContextMiddleware() {
       initializedUsers.add(userId);
     }
 
-    ctx.state.ledger = await getActiveLedger(userId);
+    ctx.state.ledger = await ledgers.getActiveLedger(userId);
     if (!ctx.state.ledger) {
       initializedUsers.delete(userId);
       throw new Error('Không thể khởi tạo sổ cá nhân');
@@ -67,12 +64,14 @@ function createContextMiddleware() {
   };
 }
 
-async function notifyUser(ctx, userId, text) {
-  const user = await getUser(userId);
-  if (!user?.chat_id) return;
-  await ctx.telegram.sendMessage(user.chat_id, text).catch((error) => {
-    console.error('Không thể gửi thông báo thành viên:', error.message);
-  });
+function createNotifyUser(users) {
+  return async (ctx, userId, text) => {
+    const user = await users.getUser(userId);
+    if (!user?.chat_id) return;
+    await ctx.telegram.sendMessage(user.chat_id, text).catch((error) => {
+      console.error('Không thể gửi thông báo thành viên:', error.message);
+    });
+  };
 }
 
 function requireWritableLedger(ctx) {
@@ -93,8 +92,8 @@ function requireOwnerLedger(ctx) {
 
 module.exports = {
   createContextMiddleware,
+  createNotifyUser,
   telegramDisplayName,
-  notifyUser,
   requireWritableLedger,
   requireOwnerLedger,
 };

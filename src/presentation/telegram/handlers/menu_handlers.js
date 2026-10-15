@@ -1,15 +1,5 @@
 const { Markup } = require('telegraf');
-const { InputError } = require('../../../errors');
-const { config } = require('../../../config');
-const {
-  getMonthlySummary,
-  getMonthlyTransactions,
-  getRecentTransactions,
-  deleteAllUserData,
-} = require('../../../transaction_repository');
-const { getBudgetStatus } = require('../../../finance_repository');
-const { getUser, updatePreference } = require('../../../user_repository');
-const { getUsageStatus } = require('../../../ai_service');
+const { InputError } = require('../../../domain/errors');
 const { getCommandArguments } = require('../../../utils/command');
 const { getCurrentMonth, getCurrentDateParts } = require('../../../utils/month');
 const { transactionsToCsv } = require('../../../utils/csv');
@@ -17,14 +7,30 @@ const {
   formatMonthlyReport,
   createChartUrl,
   formatBudgetStatus,
-} = require('../../../report_service');
+} = require('../../../domain/services/report_service');
 const {
   helpMessage,
   formatRecentTransactions,
   showMainMenu,
 } = require('../views');
 
-function registerMenuHandlers(bot, { forgetUser }) {
+function registerMenuHandlers(bot, {
+  config,
+  transactions,
+  finance,
+  users,
+  ai,
+  forgetUser,
+}) {
+  const {
+    getMonthlySummary,
+    getMonthlyTransactions,
+    getRecentTransactions,
+    deleteAllUserData,
+  } = transactions;
+  const { getBudgetStatus } = finance;
+  const { getUser, updatePreference } = users;
+  const { getUsageStatus } = ai;
   bot.command('menu', showMainMenu);
   bot.command('nhacnho', async (ctx) => {
     const input = getCommandArguments(ctx.message.text, 'nhacnho').toLowerCase();

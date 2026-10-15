@@ -27,9 +27,10 @@ Mỗi người có một sổ cá nhân và có thể tham gia sổ chung bằng
 phê duyệt của owner. Mọi truy vấn kiểm tra membership/role và chạy trên
 `ledger_id`. Bot chỉ chạy một instance để tránh xung đột Telegram long polling.
 
-Telegram presentation được chia theo feature tại `src/presentation/telegram`;
-domain policy không phụ thuộc Telegraf/PostgreSQL và `create_bot.js` là
-composition root. Xem [tài liệu kiến trúc](docs/ARCHITECTURE.md).
+Mã nguồn đi theo Clean Architecture thực dụng: Telegram presentation chỉ gọi
+domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ wiring
+được thực hiện tại `src/infrastructure/composition_root.js`. Xem
+[tài liệu kiến trúc](docs/ARCHITECTURE.md).
 
 ## Tính năng
 

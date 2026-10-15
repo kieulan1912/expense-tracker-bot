@@ -1,7 +1,8 @@
-const { pool } = require('./database');
-const { createInvitationCode, hashInvitationCode } = require('./utils/invitation');
+const { createInvitationCode, hashInvitationCode } = require('../../../utils/invitation');
 
 const INVITATION_TTL_HOURS = 24;
+
+function createLedgerRepository(pool) {
 
 async function hasSharedAccess(userId) {
   const result = await pool.query(
@@ -434,7 +435,7 @@ async function deleteLedger({ ownerUserId, ledgerId }) {
   }
 }
 
-module.exports = {
+  return {
   hasSharedAccess,
   getLedgerAccess,
   getActiveLedger,
@@ -449,4 +450,7 @@ module.exports = {
   removeMember,
   leaveLedger,
   deleteLedger,
-};
+  };
+}
+
+module.exports = { createLedgerRepository };

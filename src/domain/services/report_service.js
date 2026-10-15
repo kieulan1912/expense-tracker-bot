@@ -1,5 +1,5 @@
-const { formatMoney } = require('./utils/amount');
-const { getCategoryName } = require('./utils/category');
+const { formatMoney } = require('../../utils/amount');
+const { getCategoryName } = require('../../utils/category');
 
 function summarizeRows(rows) {
   const incomeRows = rows.filter((row) => row.transaction_type === 'income');

@@ -2,98 +2,135 @@
 
 ## Mục tiêu
 
-Mã nguồn dùng kiến trúc phân lớp kết hợp feature modules. Mục tiêu là tách logic
-nghiệp vụ khỏi Telegram framework, tránh một `bot.js` khổng lồ và cho phép kiểm
-thử từng phần độc lập.
+Project dùng Clean Architecture theo hướng thực dụng cho Node.js: domain không
+biết Telegram, PostgreSQL, Gemini hay biến môi trường; presentation không import
+data adapter trực tiếp; infrastructure composition root là nơi duy nhất nối các
+dependency khi ứng dụng khởi động.
+
+Refactor này chỉ thay đổi tổ chức và chiều phụ thuộc. Database schema, migration,
+command, callback payload, environment variables và hành vi người dùng được giữ
+nguyên.
 
 ## Cấu trúc
 
 ```text
 src/
 ├── domain/
-│   └── ledger_policy.js
+│   ├── errors.js
+│   ├── ledger_policy.js
+│   ├── repositories/              # Port/contracts
+│   ├── services/                  # Logic thuần, formatter, AI validator
+│   └── use_cases/                 # Transaction, finance, ledger, user, AI
+├── data/
+│   ├── gateways/
+│   │   └── gemini_ai_gateway.js
+│   └── postgres/
+│       ├── database.js            # Pool factory + migration idempotent
+│       └── repositories/          # PostgreSQL implementations
 ├── presentation/
 │   └── telegram/
 │       ├── create_bot.js
 │       ├── context.js
 │       ├── views.js
 │       └── handlers/
-│           ├── ledger_handlers.js
-│           ├── finance_handlers.js
-│           ├── menu_handlers.js
-│           └── ai_handlers.js
-├── *_repository.js
-├── ai_service.js
-├── report_service.js
-├── scheduler.js
-├── database.js
+├── infrastructure/
+│   ├── composition_root.js
+│   ├── config.js
+│   ├── http/health_server.js
+│   ├── scheduler/scheduler.js
+│   └── stores/pending_store.js
+├── utils/
 └── index.js
+```
+
+## Luồng phụ thuộc
+
+```text
+Telegram handler
+      ↓
+Domain use case
+      ↓
+Repository/Gateway contract
+      ↑
+PostgreSQL repository hoặc Gemini gateway
+
+Infrastructure composition root tạo và nối tất cả dependency.
 ```
 
 ### Domain
 
-Chứa policy thuần, không import Telegraf, PostgreSQL hoặc config môi trường.
-`ledger_policy.js` quyết định role nào được ghi hoặc quản trị sổ và cung cấp
-nhãn role ổn định.
+- `repositories/*_contract.js` khai báo các method bắt buộc của từng port.
+- `repository_contract.js` kiểm tra adapter tại startup và fail fast nếu thiếu
+  method.
+- `use_cases/*_use_cases.js` cung cấp API nghiệp vụ cho presentation/scheduler.
+- `ledger_policy.js`, `report_service.js` và `ai_result_validator.js` là logic
+  thuần, không import Telegraf, PostgreSQL hoặc config runtime.
 
-### Presentation — Telegram
+JavaScript không có interface native nên contract được biểu diễn bằng danh sách
+method bất biến và kiểm tra runtime. Cách này không cần DI framework nhưng vẫn
+giữ dependency inversion rõ ràng.
 
-- `create_bot.js` là composition root: tạo bot, gắn middleware và đăng ký các
-  feature handler.
-- `context.js` tạo user context, rate limit, active ledger và chuyển domain
-  policy thành lỗi thân thiện với người dùng.
-- `views.js` chỉ xây dựng nội dung và keyboard dùng lại.
-- `handlers/ledger_handlers.js` xử lý sổ, lời mời, thành viên và role.
-- `handlers/finance_handlers.js` xử lý command thu chi, báo cáo, ngân sách, công
-  nợ và định kỳ.
-- `handlers/menu_handlers.js` xử lý navigation, cài đặt và quyền riêng tư.
-- `handlers/ai_handlers.js` xử lý text tự nhiên, OCR và bản nháp xác nhận.
+### Data
 
-Handler không khởi tạo bot và không tự đăng ký middleware toàn cục; mỗi module
-chỉ export một hàm `register...Handlers(bot)`.
+- `postgres/database.js` tạo pool và chạy migration hiện có.
+- `postgres/repositories/*` chứa toàn bộ SQL và transaction PostgreSQL.
+- Mỗi repository là factory nhận `pool`; không tự đọc singleton database.
+- `gemini_ai_gateway.js` nhận `config` và `pool` từ ngoài, quản lý quota và gọi
+  Gemini. Validation response được đưa vào domain service thuần.
 
-### Data và infrastructure adapters
+Các kiểm tra quyền quan trọng vẫn tồn tại trong SQL/repository để callback cũ
+hoặc request giả mạo không thể bỏ qua membership/role.
 
-- `database.js` quản lý pool và migration idempotent.
-- Các file `*_repository.js` là adapter PostgreSQL, chịu trách nhiệm query và
-  transaction.
-- `ai_service.js` là adapter Gemini và quota AI.
-- `scheduler.js` là adapter tác vụ nền.
+### Presentation
 
-Trong quy mô bot cá nhân 3–5 user, các handler gọi repository/service qua API
-hàm nhỏ thay vì thêm interface/DI container hình thức. Khi cần thay PostgreSQL
-hoặc Telegram, có thể đưa các API này vào application use case mà không thay
-domain policy.
+- `create_bot.js` tạo Telegram adapter và đăng ký feature handler bằng các use
+  case được inject.
+- `context.js` xử lý rate limit, user context, active ledger và chuyển policy
+  thành lỗi thân thiện.
+- `views.js` tạo message và inline keyboard dùng lại.
+- Các handler chỉ biết Telegram, domain service và use-case API; không import
+  `src/data`.
+
+### Infrastructure
+
+- `composition_root.js` là nơi duy nhất khởi tạo database, repositories,
+  gateways, use cases, Telegram bot, health server và scheduler.
+- `index.js` chỉ quản lý lifecycle: initialize, listen, launch và shutdown.
+- Health server nhận callback readiness thay vì import pool.
+- Scheduler nhận use cases thay vì import PostgreSQL repository.
+- Pending confirmation store là instance được inject, không còn global singleton.
 
 ## Dependency rules
 
-1. Domain không phụ thuộc presentation hoặc infrastructure.
-2. Repository không phụ thuộc Telegram context.
-3. Telegram-specific message, callback và keyboard chỉ nằm trong
-   `presentation/telegram`.
-4. `index.js` chỉ quản lý lifecycle: database, HTTP health server, Telegram bot
-   và scheduler.
-5. Quyền phải được kiểm tra lại ở server/repository đối với thao tác nhạy cảm;
-   ẩn nút không được xem là bảo mật.
-6. Callback dài hạn phải chứa đủ ID nghiệp vụ và kiểm tra membership mới ở thời
-   điểm xử lý, không tin state lúc nút được tạo.
+1. Domain không phụ thuộc data, presentation hoặc infrastructure.
+2. Presentation không import data adapter; mọi truy cập đi qua use cases.
+3. Data có thể phụ thuộc domain contracts/services nhưng không phụ thuộc
+   Telegram presentation.
+4. Infrastructure được phép biết tất cả layer để thực hiện wiring.
+5. Telegram-specific message, callback và keyboard chỉ nằm trong presentation
+   hoặc scheduler notification adapter.
+6. Transaction nhiều bước và kiểm tra quyền cuối cùng phải nằm trong data
+   repository transaction.
+7. Boundary tests trong `test/architecture.test.js` ngăn dependency sai chiều
+   quay trở lại.
 
 ## Cách thêm tính năng
 
-1. Đặt policy thuần vào `domain` nếu có quy tắc nghiệp vụ mới.
-2. Thêm query nhỏ vào repository phù hợp; transaction nhiều bước phải nằm cùng
-   một repository/service.
-3. Thêm handler vào feature module hiện có hoặc tạo module mới.
-4. Đăng ký module tại `create_bot.js`.
-5. Thêm unit test cho policy/parser và integration test cho query quan trọng
-   khi có PostgreSQL test environment.
-6. Chạy `npm test`, `node --check` và `git diff --check` trước khi deploy.
+1. Viết policy/entity/service thuần trong domain nếu có quy tắc mới.
+2. Bổ sung method vào repository contract phù hợp.
+3. Implement method trong PostgreSQL repository hoặc gateway.
+4. Expose thao tác qua use-case module theo feature.
+5. Inject use case vào handler qua `create_bot.js` và `composition_root.js`.
+6. Thêm unit test cho domain/use case; thêm integration test khi query SQL mới
+   có PostgreSQL test environment.
+7. Chạy `npm test`, `node --check` và `git diff --check` trước deploy.
 
 ## Tương thích sau refactor
 
 - Entry point vẫn là `src/index.js`.
 - Start command vẫn là `npm start`.
-- Callback payload và command hiện có không đổi.
-- Không đổi schema hoặc migration chỉ vì refactor presentation.
-- `src/bot.js` legacy đã được loại bỏ; runtime dùng
-  `presentation/telegram/create_bot.js`.
+- Không thêm hoặc đổi environment variable.
+- Không đổi schema/migration vì refactor layer.
+- Command, callback payload và Telegram response hiện có được giữ nguyên.
+- Các file repository/service legacy ở root `src/` đã được chuyển vào layer mới;
+  không giữ compatibility adapter trùng lặp.

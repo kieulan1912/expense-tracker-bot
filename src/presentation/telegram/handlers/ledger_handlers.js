@@ -1,23 +1,8 @@
 const { Markup } = require('telegraf');
-const { InputError } = require('../../../errors');
+const { InputError } = require('../../../domain/errors');
 const { getCommandArguments, parsePositiveInteger } = require('../../../utils/command');
-const {
-  getLedgerAccess,
-  getActiveLedger,
-  listLedgers,
-  createLedger,
-  selectLedger,
-  createInvitation,
-  requestJoin,
-  reviewJoinRequest,
-  listMembers,
-  changeMemberRole,
-  removeMember,
-  leaveLedger,
-  deleteLedger,
-} = require('../../../ledger_repository');
 const { roleLabel } = require('../../../domain/ledger_policy');
-const { notifyUser, telegramDisplayName, requireOwnerLedger } = require('../context');
+const { telegramDisplayName, requireOwnerLedger } = require('../context');
 const { showLedgerMenu } = require('../views');
 
 function createInputModeStore() {
@@ -41,7 +26,22 @@ function createInputModeStore() {
   };
 }
 
-function registerLedgerHandlers(bot) {
+function registerLedgerHandlers(bot, { ledgers, notifyUser }) {
+  const {
+    getLedgerAccess,
+    getActiveLedger,
+    listLedgers,
+    createLedger,
+    selectLedger,
+    createInvitation,
+    requestJoin,
+    reviewJoinRequest,
+    listMembers,
+    changeMemberRole,
+    removeMember,
+    leaveLedger,
+    deleteLedger,
+  } = ledgers;
   const inputModes = createInputModeStore();
 
   async function sendLedgerList(ctx) {
