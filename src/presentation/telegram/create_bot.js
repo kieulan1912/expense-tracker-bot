@@ -30,6 +30,7 @@ function createBot({ config, useCases, pendingStore, bot: providedBot = null }) 
     config,
     transactions: useCases.transactions,
     finance: useCases.finance,
+    ledgers: useCases.ledgers,
     users: useCases.users,
     getBudgetWarning,
   });

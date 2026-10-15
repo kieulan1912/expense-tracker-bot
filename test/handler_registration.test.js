@@ -78,6 +78,6 @@ test('composition đăng ký đủ command và event sau refactor', () => {
   assert.equal(bot.commands.length, new Set(bot.commands).size);
   assert.deepEqual(new Set(bot.events), new Set(['photo', 'document', 'text']));
   assert.deepEqual(new Set(bot.lifecycle), new Set(['start', 'help']));
-  assert.equal(bot.actions.length, 40);
+  assert.equal(bot.actions.length, 42);
   assert.equal(bot.actions.length, new Set(bot.actions).size);
 });

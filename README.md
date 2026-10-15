@@ -38,6 +38,8 @@ domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ w
 - Nhắn tự nhiên, tách nhiều giao dịch, hiểu ngày tương đối bằng Gemini.
 - Xác nhận giao dịch OCR, dữ liệu mơ hồ hoặc khoản tiền lớn.
 - Undo, lịch sử tùy số lượng (`/lichsu 3`), xóa, báo cáo tháng và xuất CSV.
+- Báo cáo tháng có nút xem chi tiết trực tiếp trong Telegram, phân trang 8 giao
+  dịch và hiển thị người ghi cho sổ chung.
 - Ngân sách tổng/theo danh mục, hạn mức theo số ngày còn lại, cảnh báo 80%.
 - Cảnh báo khoản chi bất thường dựa trên trung bình 30 ngày.
 - Theo dõi cho vay, đi vay, thanh toán từng phần và hạn trả.

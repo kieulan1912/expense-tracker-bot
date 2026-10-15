@@ -11,6 +11,7 @@ const {
 const {
   helpMessage,
   formatRecentTransactions,
+  monthlyReportKeyboard,
   showMainMenu,
 } = require('../views');
 
@@ -136,9 +137,11 @@ function registerMenuHandlers(bot, {
     await ctx.answerCbQuery();
     const { month, year } = getCurrentMonth(config.timezone);
     const rows = await getMonthlySummary({ ledgerId: ctx.state.ledger.id, month, year, timezone: config.timezone });
-    return ctx.reply(rows.length
-      ? formatMonthlyReport(rows, month, year, ctx.state.ledger.name)
-      : `📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
+    if (!rows.length) return ctx.reply(`📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
+    return ctx.reply(
+      formatMonthlyReport(rows, month, year, ctx.state.ledger.name),
+      monthlyReportKeyboard(ctx.state.ledger.id, month, year),
+    );
   });
   bot.action('report:chart', async (ctx) => {
     await ctx.answerCbQuery();

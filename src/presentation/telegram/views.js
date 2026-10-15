@@ -84,6 +84,95 @@ function formatRecentTransactions(rows, title) {
   return [title, '', ...lines].join('\n\n');
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function compactTransactionDate(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?/);
+  if (!match) return '--/-- --:--';
+  return `${match[3]}/${match[2]} ${match[4] || '--'}:${match[5] || '--'}`;
+}
+
+function truncate(value, length) {
+  const text = String(value || '').trim();
+  return text.length > length ? `${text.slice(0, length - 1)}…` : text;
+}
+
+function formatMonthlyTransactionDetails(
+  rows,
+  { month, year, ledgerName = '', page = 1, pageSize = 8 },
+) {
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const currentPage = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const start = (currentPage - 1) * pageSize;
+  const items = rows.slice(start, start + pageSize);
+  const table = [
+    'ID    Ngày giờ     Loại      Số tiền',
+    ...items.map((row) => {
+      const id = `#${row.id}`.padEnd(6);
+      const date = compactTransactionDate(row.local_created_at).padEnd(14);
+      const type = (row.transaction_type === 'income' ? 'Thu' : 'Chi').padEnd(7);
+      const amount = formatMoney(row.amount).replace(' VNĐ', '');
+      return `${id}${date}${type}${amount.padStart(12)}`;
+    }),
+  ];
+  const details = items.flatMap((row) => [
+    `${row.transaction_type === 'income' ? '📥' : '📤'} <b>#${escapeHtml(row.id)} · ${escapeHtml(row.category)}</b>`,
+    `📝 ${escapeHtml(truncate(row.description, 80) || 'Không có ghi chú')}`,
+    `👤 ${escapeHtml(truncate(row.created_by_name, 50) || 'Không xác định')}`,
+    '',
+  ]);
+
+  return {
+    text: [
+      `📋 <b>CHI TIẾT THÁNG ${month}/${year}</b>`,
+      ...(ledgerName ? [`📒 ${escapeHtml(ledgerName)}`] : []),
+      `Trang ${currentPage}/${totalPages} · ${rows.length} giao dịch`,
+      '',
+      `<pre>${escapeHtml(table.join('\n'))}</pre>`,
+      '',
+      ...details,
+    ].join('\n').trim(),
+    page: currentPage,
+    totalPages,
+  };
+}
+
+function monthlyReportKeyboard(ledgerId, month, year) {
+  return Markup.inlineKeyboard([[
+    Markup.button.callback(
+      '📋 Xem chi tiết',
+      `report:details:${ledgerId}:${year}:${month}:1`,
+    ),
+  ]]);
+}
+
+function monthlyReportDetailsKeyboard(ledgerId, month, year, page, totalPages) {
+  const pagination = [];
+  if (page > 1) {
+    pagination.push(Markup.button.callback(
+      '⬅️ Trang trước',
+      `report:details:${ledgerId}:${year}:${month}:${page - 1}`,
+    ));
+  }
+  if (page < totalPages) {
+    pagination.push(Markup.button.callback(
+      'Trang sau ➡️',
+      `report:details:${ledgerId}:${year}:${month}:${page + 1}`,
+    ));
+  }
+  const rows = pagination.length ? [pagination] : [];
+  rows.push([Markup.button.callback(
+    '📊 Xem tổng quan',
+    `report:summary:${ledgerId}:${year}:${month}`,
+  )]);
+  return Markup.inlineKeyboard(rows);
+}
+
 async function showMainMenu(ctx) {
   const ledger = ctx.state.ledger;
   return ctx.reply([
@@ -120,6 +209,9 @@ module.exports = {
   transactionLines,
   sendSaved,
   formatRecentTransactions,
+  formatMonthlyTransactionDetails,
+  monthlyReportKeyboard,
+  monthlyReportDetailsKeyboard,
   showMainMenu,
   showLedgerMenu,
 };

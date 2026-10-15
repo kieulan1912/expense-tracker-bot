@@ -19,6 +19,9 @@ const {
   funnyComment,
   sendSaved,
   formatRecentTransactions,
+  formatMonthlyTransactionDetails,
+  monthlyReportKeyboard,
+  monthlyReportDetailsKeyboard,
   showMainMenu,
 } = require('../views');
 
@@ -63,6 +66,7 @@ function registerFinanceHandlers(bot, {
   config,
   transactions,
   finance,
+  ledgers,
   users,
   getBudgetWarning = createBudgetWarning({ config, finance }),
 }) {
@@ -84,6 +88,7 @@ function registerFinanceHandlers(bot, {
     deleteRecurring,
     getExpenseStats,
   } = finance;
+  const { getLedgerAccess } = ledgers;
   const { getUser } = users;
   async function handleCreateTransaction(ctx, type, command) {
     const ledger = requireWritableLedger(ctx);
@@ -134,7 +139,74 @@ function registerFinanceHandlers(bot, {
       timezone: config.timezone,
     });
     if (!rows.length) return ctx.reply(`📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
-    return ctx.reply(formatMonthlyReport(rows, month, year, ctx.state.ledger.name));
+    return ctx.reply(
+      formatMonthlyReport(rows, month, year, ctx.state.ledger.name),
+      monthlyReportKeyboard(ctx.state.ledger.id, month, year),
+    );
+  });
+  bot.action(/^report:details:(\d+):(\d{4}):(\d{1,2}):(\d+)$/, async (ctx) => {
+    const [, ledgerIdText, yearText, monthText, pageText] = ctx.match;
+    const ledgerId = Number(ledgerIdText);
+    const year = Number(yearText);
+    const month = Number(monthText);
+    if (month < 1 || month > 12) {
+      return ctx.answerCbQuery('Tháng báo cáo không hợp lệ.', { show_alert: true });
+    }
+    const access = await getLedgerAccess(ctx.from.id, ledgerId);
+    if (!access) {
+      return ctx.answerCbQuery('Bạn không còn quyền xem sổ này.', { show_alert: true });
+    }
+    const rows = await getMonthlyTransactions({
+      ledgerId,
+      month,
+      year,
+      timezone: config.timezone,
+    });
+    if (!rows.length) {
+      return ctx.answerCbQuery('Không còn giao dịch trong tháng này.', { show_alert: true });
+    }
+    const details = formatMonthlyTransactionDetails(rows, {
+      month,
+      year,
+      ledgerName: access.name,
+      page: Number(pageText),
+    });
+    await ctx.answerCbQuery();
+    return ctx.editMessageText(details.text, {
+      parse_mode: 'HTML',
+      ...monthlyReportDetailsKeyboard(
+        ledgerId,
+        month,
+        year,
+        details.page,
+        details.totalPages,
+      ),
+    });
+  });
+  bot.action(/^report:summary:(\d+):(\d{4}):(\d{1,2})$/, async (ctx) => {
+    const [, ledgerIdText, yearText, monthText] = ctx.match;
+    const ledgerId = Number(ledgerIdText);
+    const year = Number(yearText);
+    const month = Number(monthText);
+    if (month < 1 || month > 12) {
+      return ctx.answerCbQuery('Tháng báo cáo không hợp lệ.', { show_alert: true });
+    }
+    const access = await getLedgerAccess(ctx.from.id, ledgerId);
+    if (!access) {
+      return ctx.answerCbQuery('Bạn không còn quyền xem sổ này.', { show_alert: true });
+    }
+    const rows = await getMonthlySummary({
+      ledgerId,
+      month,
+      year,
+      timezone: config.timezone,
+    });
+    await ctx.answerCbQuery();
+    if (!rows.length) return ctx.editMessageText('📭 Không còn giao dịch trong tháng này.');
+    return ctx.editMessageText(
+      formatMonthlyReport(rows, month, year, access.name),
+      monthlyReportKeyboard(ledgerId, month, year),
+    );
   });
   bot.command('bieudo', async (ctx) => {
     const input = getCommandArguments(ctx.message.text, 'bieudo');

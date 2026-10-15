@@ -10,6 +10,7 @@ const {
   transactionLines,
   sendSaved,
   formatRecentTransactions,
+  monthlyReportKeyboard,
 } = require('../views');
 
 async function saveAiResult(ctx, result, source, dependencies) {
@@ -44,9 +45,11 @@ async function saveAiResult(ctx, result, source, dependencies) {
       year,
       timezone: config.timezone,
     });
-    return ctx.reply(rows.length
-      ? formatMonthlyReport(rows, month, year, ctx.state.ledger.name)
-      : `📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
+    if (!rows.length) return ctx.reply(`📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
+    return ctx.reply(
+      formatMonthlyReport(rows, month, year, ctx.state.ledger.name),
+      monthlyReportKeyboard(ctx.state.ledger.id, month, year),
+    );
   }
   if (!result.items.length) {
     return ctx.reply(result.reply || 'Tôi chưa tìm thấy giao dịch để ghi.');

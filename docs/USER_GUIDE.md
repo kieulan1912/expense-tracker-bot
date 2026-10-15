@@ -218,6 +218,12 @@ Hãy liên hệ chủ sổ nếu bạn cần quyền Thành viên.
 Báo cáo của sổ chung bao gồm dữ liệu của tất cả thành viên. Lịch sử hiển thị
 người ghi từng giao dịch và cho phép chọn tối đa 20 giao dịch mỗi lần.
 
+Sau khi bot trả tổng thu, tổng chi và số dư, bấm **📋 Xem chi tiết** để xem bảng
+giao dịch ngay trong Telegram. Mỗi trang hiển thị tối đa 8 giao dịch, gồm mã,
+ngày, loại thu/chi, số tiền, danh mục, ghi chú và người ghi. Dùng **Trang trước**
+hoặc **Trang sau** để chuyển trang; bấm **📊 Xem tổng quan** để quay lại báo cáo
+tổng. Bot kiểm tra lại quyền truy cập sổ ở mỗi lần bấm nút.
+
 ## 11. Rời hoặc xóa sổ
 
 ### Thành viên rời sổ
