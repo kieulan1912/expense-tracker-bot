@@ -54,10 +54,11 @@ async function runDailyJobs(telegram) {
   if (now.weekday !== 'Sun' && now.day !== lastDay) return;
   const users = await getReminderUsers();
   for (const user of users) {
-    const rows = await getMonthlySummary({ userId: user.telegram_user_id, month: now.month, year: now.year, timezone: user.timezone });
+    if (!user.active_ledger_id) continue;
+    const rows = await getMonthlySummary({ ledgerId: user.active_ledger_id, month: now.month, year: now.year, timezone: user.timezone });
     if (!rows.length) continue;
     const prefix = now.day === lastDay ? '🗓 Tổng kết cuối tháng\n\n' : '🗓 Điểm lại tuần này (lũy kế tháng)\n\n';
-    await telegram.sendMessage(user.chat_id, prefix + formatMonthlyReport(rows, now.month, now.year)).catch((error) => {
+    await telegram.sendMessage(user.chat_id, prefix + formatMonthlyReport(rows, now.month, now.year, user.active_ledger_name)).catch((error) => {
       console.error('Không thể gửi báo cáo định kỳ:', error.message);
     });
   }

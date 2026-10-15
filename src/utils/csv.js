@@ -9,13 +9,14 @@ function escapeCsv(value) {
 }
 
 function transactionsToCsv(rows) {
-  const header = ['Mã', 'Loại', 'Số tiền', 'Danh mục', 'Ghi chú', 'Thời gian'];
+  const header = ['Mã', 'Loại', 'Số tiền', 'Danh mục', 'Ghi chú', 'Người ghi', 'Thời gian'];
   const body = rows.map((row) => [
     row.id,
     row.transaction_type === 'expense' ? 'Chi' : 'Thu',
     row.amount,
     row.category,
     row.description,
+    row.created_by_name,
     row.local_created_at,
   ]);
 

@@ -187,6 +187,213 @@ async function initializeDatabase() {
     )
   `);
 
+  await pool.query(`
+    ALTER TABLE user_preferences
+      ADD COLUMN IF NOT EXISTS display_name VARCHAR(120),
+      ADD COLUMN IF NOT EXISTS username VARCHAR(64),
+      ADD COLUMN IF NOT EXISTS active_ledger_id BIGINT
+  `);
+
+  // Một số database cũ có thể còn dữ liệu nghiệp vụ nhưng thiếu preference.
+  // Tạo preference tối thiểu trước khi migrate sang ledger.
+  await pool.query(`
+    INSERT INTO user_preferences (telegram_user_id, chat_id, timezone)
+    SELECT user_id, user_id, $1
+    FROM (
+      SELECT telegram_user_id AS user_id FROM financial_transactions
+      UNION SELECT telegram_user_id FROM budgets
+      UNION SELECT telegram_user_id FROM debts
+      UNION SELECT telegram_user_id FROM recurring_transactions
+    ) users
+    ON CONFLICT (telegram_user_id) DO NOTHING
+  `, [config.timezone]);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ledgers (
+      id BIGSERIAL PRIMARY KEY,
+      name VARCHAR(80) NOT NULL,
+      kind VARCHAR(12) NOT NULL DEFAULT 'shared'
+        CHECK (kind IN ('personal', 'shared')),
+      owner_user_id BIGINT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ledgers_personal_owner
+    ON ledgers (owner_user_id) WHERE kind = 'personal'
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ledger_members (
+      ledger_id BIGINT NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+      telegram_user_id BIGINT NOT NULL,
+      role VARCHAR(10) NOT NULL CHECK (role IN ('owner', 'member', 'viewer')),
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (ledger_id, telegram_user_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_ledger_members_user
+    ON ledger_members (telegram_user_id, ledger_id)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ledger_invitations (
+      id BIGSERIAL PRIMARY KEY,
+      ledger_id BIGINT NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+      code_hash CHAR(64) NOT NULL UNIQUE,
+      code_hint VARCHAR(12) NOT NULL,
+      created_by_user_id BIGINT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ledger_join_requests (
+      id BIGSERIAL PRIMARY KEY,
+      invitation_id BIGINT NOT NULL REFERENCES ledger_invitations(id) ON DELETE CASCADE,
+      ledger_id BIGINT NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+      requester_user_id BIGINT NOT NULL,
+      status VARCHAR(10) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'rejected')),
+      reviewed_by_user_id BIGINT,
+      reviewed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (invitation_id, requester_user_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ledger_audit_logs (
+      id BIGSERIAL PRIMARY KEY,
+      ledger_id BIGINT REFERENCES ledgers(id) ON DELETE SET NULL,
+      actor_user_id BIGINT NOT NULL,
+      action VARCHAR(40) NOT NULL,
+      target_user_id BIGINT,
+      metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Tự động tạo sổ cá nhân cho user hiện hữu và giữ nguyên toàn bộ dữ liệu cũ.
+  await pool.query(`
+    INSERT INTO ledgers (name, kind, owner_user_id)
+    SELECT LEFT(
+      CASE WHEN COALESCE(NULLIF(display_name, ''), '') = ''
+        THEN 'Sổ cá nhân'
+        ELSE 'Sổ của ' || display_name
+      END,
+      80
+    ), 'personal', telegram_user_id
+    FROM user_preferences
+    ON CONFLICT (owner_user_id) WHERE kind = 'personal' DO NOTHING
+  `);
+
+  await pool.query(`
+    INSERT INTO ledger_members (ledger_id, telegram_user_id, role)
+    SELECT id, owner_user_id, 'owner' FROM ledgers WHERE kind = 'personal'
+    ON CONFLICT (ledger_id, telegram_user_id) DO UPDATE SET role = 'owner'
+  `);
+
+  await pool.query(`
+    UPDATE user_preferences u
+    SET active_ledger_id = l.id
+    FROM ledgers l
+    WHERE l.owner_user_id = u.telegram_user_id
+      AND l.kind = 'personal'
+      AND (u.active_ledger_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM ledger_members m
+        WHERE m.ledger_id = u.active_ledger_id
+          AND m.telegram_user_id = u.telegram_user_id
+      ))
+  `);
+
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE user_preferences
+        ADD CONSTRAINT fk_user_preferences_active_ledger
+        FOREIGN KEY (active_ledger_id) REFERENCES ledgers(id) ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$
+  `);
+
+  for (const table of ['financial_transactions', 'budgets', 'debts', 'recurring_transactions']) {
+    await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ledger_id BIGINT`);
+    await pool.query(`
+      UPDATE ${table} item
+      SET ledger_id = l.id
+      FROM ledgers l
+      WHERE item.ledger_id IS NULL
+        AND l.kind = 'personal'
+        AND l.owner_user_id = item.telegram_user_id
+    `);
+    await pool.query(`ALTER TABLE ${table} ALTER COLUMN ledger_id SET NOT NULL`);
+    await pool.query(`
+      DO $$ BEGIN
+        ALTER TABLE ${table}
+          ADD CONSTRAINT fk_${table}_ledger
+          FOREIGN KEY (ledger_id) REFERENCES ledgers(id) ON DELETE CASCADE;
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$
+    `);
+  }
+
+  await pool.query(`
+    ALTER TABLE financial_transactions
+      ADD COLUMN IF NOT EXISTS created_by_user_id BIGINT
+  `);
+  await pool.query(`
+    UPDATE financial_transactions
+    SET created_by_user_id = telegram_user_id
+    WHERE created_by_user_id IS NULL
+  `);
+  await pool.query(`
+    ALTER TABLE financial_transactions
+      ALTER COLUMN created_by_user_id SET NOT NULL
+  `);
+
+  // Chuyển uniqueness từ user sang ledger để một user có nhiều sổ độc lập.
+  await pool.query(`
+    ALTER TABLE budgets
+      DROP CONSTRAINT IF EXISTS budgets_telegram_user_id_category_id_month_year_key
+  `);
+  await pool.query('DROP INDEX IF EXISTS idx_budgets_total_unique');
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_ledger_category_unique
+    ON budgets (ledger_id, category_id, month, year)
+    WHERE category_id IS NOT NULL
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_ledger_total_unique
+    ON budgets (ledger_id, month, year)
+    WHERE category_id IS NULL
+  `);
+
+  await pool.query('DROP INDEX IF EXISTS idx_financial_transactions_source_key');
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_financial_transactions_ledger_source
+    ON financial_transactions (ledger_id, source_key)
+    WHERE source_key IS NOT NULL
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_financial_transactions_ledger_occurred
+    ON financial_transactions (ledger_id, occurred_at DESC)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_debts_ledger_status
+    ON debts (ledger_id, status, due_date)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_recurring_ledger_active
+    ON recurring_transactions (ledger_id, active, day_of_month)
+  `);
+
   await pool.query('SELECT NOW()');
 }
 

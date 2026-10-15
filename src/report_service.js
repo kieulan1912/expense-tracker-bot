@@ -9,9 +9,13 @@ function summarizeRows(rows) {
   return { incomeRows, expenseRows, income, expense };
 }
 
-function formatMonthlyReport(rows, month, year) {
+function formatMonthlyReport(rows, month, year, ledgerName = '') {
   const { incomeRows, expenseRows, income, expense } = summarizeRows(rows);
-  const lines = [`📊 BÁO CÁO THÁNG ${month}/${year}`, ''];
+  const lines = [
+    `📊 BÁO CÁO THÁNG ${month}/${year}`,
+    ...(ledgerName ? [`📒 ${ledgerName}`] : []),
+    '',
+  ];
   if (incomeRows.length) {
     lines.push('📥 KHOẢN THU', ...incomeRows.map((row) => `• ${row.category}: ${formatMoney(row.total)}`), '');
   }

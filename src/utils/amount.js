@@ -17,7 +17,7 @@ function parseAmount(input) {
   const suffixes = [
     { values: ['triệu', 'trieu', 'củ', 'cu', 'tr'], multiplier: 1_000_000 },
     { values: ['nghìn', 'nghin', 'ngàn', 'ngan', 'kđ', 'k'], multiplier: 1_000 },
-    { values: ['lét', 'let', 'tờ', 'to'], multiplier: 100_000 },
+    { values: ['lít', 'lit', 'lét', 'let', 'tờ', 'to'], multiplier: 100_000 },
   ];
   const matchedSuffix = suffixes
     .flatMap((group) =>

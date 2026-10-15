@@ -4,6 +4,12 @@ Telegram bot quản lý tài chính cá nhân bằng Node.js, Telegraf, PostgreS
 Gemini. Bot ưu tiên xử lý local; Gemini chỉ được gọi cho câu tự nhiên hoặc ảnh
 hóa đơn để giảm quota và giữ free plan đủ dùng cho nhóm nhỏ.
 
+## Tài liệu
+
+- [Đặc tả nghiệp vụ sổ tài chính dùng chung](docs/SHARED_LEDGER_BUSINESS.md)
+- [Hướng dẫn sử dụng và thiết kế command/UI-UX](docs/USER_GUIDE.md)
+- [Kiến trúc mã nguồn và quy tắc mở rộng](docs/ARCHITECTURE.md)
+
 ## Kiến trúc
 
 ```text
@@ -17,8 +23,13 @@ Northflank (Node.js, long polling, daily scheduler)
 Neon PostgreSQL
 ```
 
-Mỗi `telegram_user_id` là một không gian dữ liệu độc lập. Bot chỉ chạy một
-instance để tránh xung đột Telegram long polling.
+Mỗi người có một sổ cá nhân và có thể tham gia sổ chung bằng mã mời một lần +
+phê duyệt của owner. Mọi truy vấn kiểm tra membership/role và chạy trên
+`ledger_id`. Bot chỉ chạy một instance để tránh xung đột Telegram long polling.
+
+Telegram presentation được chia theo feature tại `src/presentation/telegram`;
+domain policy không phụ thuộc Telegraf/PostgreSQL và `create_bot.js` là
+composition root. Xem [tài liệu kiến trúc](docs/ARCHITECTURE.md).
 
 ## Tính năng
 
@@ -35,7 +46,12 @@ instance để tránh xung đột Telegram long polling.
 - Biểu đồ QuickChart là tùy chọn qua `/bieudo`.
 - Ba phong cách; mặc định hài hước nhưng không trêu chọc các khoản nhạy cảm.
 - Quota AI theo user/toàn hệ thống, timeout, retry một lần và local fallback.
-- `/deletedata` xóa toàn bộ dữ liệu của chính người dùng.
+- Sổ chung cho 3–5 người với quyền owner/member/viewer, lời mời có hạn và menu
+  theo vai trò.
+- Telegram chỉ hiển thị sáu command chính; các chức năng nâng cao nằm trong
+  `/menu` nhưng shortcut cũ vẫn hoạt động.
+- `/deletedata` xóa sổ cá nhân và membership; `/xoaso` chỉ dành cho owner của
+  sổ chung.
 
 Gõ `/help` trong Telegram để xem đầy đủ cú pháp.
 
@@ -76,6 +92,10 @@ CONFIRMATION_THRESHOLD_VND=1000000
 BOT_RATE_LIMIT_PER_MINUTE=30
 SCHEDULER_ENABLED=true
 ```
+
+Khi `ALLOWED_USER_IDS` được cấu hình, các ID trong danh sách được dùng bot ngay.
+Người ngoài danh sách chỉ có thể gửi `/thamgia MA_MOI`; sau khi owner duyệt,
+membership sổ chung cho phép họ sử dụng bot mà không cần sửa biến môi trường.
 
 Không commit `.env`, bot token, API key hoặc database URL. `GEMINI_API_KEY`
 chỉ được dùng ở runtime và không được ghi ra log.
