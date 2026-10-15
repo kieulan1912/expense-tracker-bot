@@ -9,6 +9,9 @@ test('parseAmount hỗ trợ các định dạng tiền Việt phổ biến', ()
   assert.equal(parseAmount('50.000'), 50_000);
   assert.equal(parseAmount('1,500,000'), 1_500_000);
   assert.equal(parseAmount('50000đ'), 50_000);
+  assert.equal(parseAmount('2 củ'), 2_000_000);
+  assert.equal(parseAmount('3 ngàn'), 3_000);
+  assert.equal(parseAmount('2 tờ'), 200_000);
 });
 
 test('parseAmount từ chối giá trị sai', () => {

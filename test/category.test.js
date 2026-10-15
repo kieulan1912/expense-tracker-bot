@@ -5,7 +5,7 @@ const { detectCategory } = require('../src/utils/category');
 test('phân loại khoản chi theo từ khóa', () => {
   assert.equal(detectCategory('ăn phở bò', 'expense'), 'Ăn uống');
   assert.equal(detectCategory('đổ xăng', 'expense'), 'Di chuyển');
-  assert.equal(detectCategory('tiền điện tháng 10', 'expense'), 'Hóa đơn');
+  assert.equal(detectCategory('tiền điện tháng 10', 'expense'), 'Hóa đơn & sinh hoạt');
 });
 
 test('phân loại khoản thu theo từ khóa', () => {

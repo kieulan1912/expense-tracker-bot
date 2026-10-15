@@ -1,6 +1,25 @@
+const categories = Object.freeze({
+  1: 'Ăn uống',
+  2: 'Di chuyển',
+  3: 'Hóa đơn & sinh hoạt',
+  4: 'Mua sắm & giải trí',
+  5: 'Sức khỏe',
+  6: 'Giáo dục & phát triển',
+  7: 'Cho tặng & gia đình',
+  99: 'Khác',
+});
+
+const incomeCategories = Object.freeze({
+  91: 'Lương',
+  92: 'Thưởng',
+  93: 'Đầu tư',
+  94: 'Kinh doanh',
+  99: 'Khác',
+});
+
 const expenseRules = [
   {
-    category: 'Ăn uống',
+    categoryId: 1,
     keywords: [
       'phở',
       'cơm',
@@ -13,49 +32,75 @@ const expenseRules = [
       'ăn trưa',
       'ăn tối',
       'nhậu',
+      'siêu thị',
+      'winmart',
     ],
   },
   {
-    category: 'Di chuyển',
+    categoryId: 2,
     keywords: ['xăng', 'grab', 'taxi', 'vé xe', 'gửi xe', 'xe buýt'],
   },
   {
-    category: 'Hóa đơn',
+    categoryId: 3,
     keywords: ['tiền điện', 'tiền nước', 'internet', 'wifi', 'tiền mạng', 'điện thoại'],
   },
   {
-    category: 'Mua sắm',
+    categoryId: 4,
     keywords: ['quần áo', 'giày', 'shopee', 'lazada', 'mua đồ'],
   },
   {
-    category: 'Sức khỏe',
+    categoryId: 5,
     keywords: ['thuốc', 'khám', 'bệnh viện', 'nha khoa'],
   },
   {
-    category: 'Giải trí',
+    categoryId: 4,
     keywords: ['xem phim', 'game', 'netflix', 'spotify', 'du lịch'],
   },
   {
-    category: 'Giáo dục',
+    categoryId: 6,
     keywords: ['học phí', 'khóa học', 'sách', 'học tiếng'],
+  },
+  {
+    categoryId: 7,
+    keywords: ['bố mẹ', 'ba mẹ', 'gia đình', 'từ thiện', 'đám cưới', 'mừng cưới', 'cho tặng'],
   },
 ];
 
 const incomeRules = [
-  { category: 'Lương', keywords: ['lương', 'salary'] },
-  { category: 'Thưởng', keywords: ['thưởng', 'bonus'] },
-  { category: 'Đầu tư', keywords: ['cổ tức', 'lãi đầu tư', 'chứng khoán'] },
-  { category: 'Kinh doanh', keywords: ['bán hàng', 'doanh thu', 'khách trả'] },
+  { categoryId: 91, keywords: ['lương', 'salary'] },
+  { categoryId: 92, keywords: ['thưởng', 'bonus'] },
+  { categoryId: 93, keywords: ['cổ tức', 'lãi đầu tư', 'chứng khoán'] },
+  { categoryId: 94, keywords: ['bán hàng', 'doanh thu', 'khách trả'] },
 ];
 
-function detectCategory(description, type) {
+function detectCategoryId(description, type) {
   const text = description.toLocaleLowerCase('vi');
   const rules = type === 'income' ? incomeRules : expenseRules;
   const matched = rules.find((rule) =>
     rule.keywords.some((keyword) => text.includes(keyword)),
   );
 
-  return matched?.category || 'Khác';
+  return matched?.categoryId || 99;
 }
 
-module.exports = { detectCategory };
+function getCategoryName(categoryId, type = 'expense') {
+  const source = type === 'income' ? incomeCategories : categories;
+  return source[Number(categoryId)] || 'Khác';
+}
+
+function detectCategory(description, type) {
+  return getCategoryName(detectCategoryId(description, type), type);
+}
+
+function isSensitiveCategory(categoryId) {
+  return [5, 6, 7].includes(Number(categoryId));
+}
+
+module.exports = {
+  categories,
+  incomeCategories,
+  detectCategory,
+  detectCategoryId,
+  getCategoryName,
+  isSensitiveCategory,
+};

@@ -1,8 +1,8 @@
 {
   "name": "lankv-expense-tracker-bot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Telegram bot quản lý thu chi cá nhân với PostgreSQL",
+  "description": "Quản gia tài chính Telegram với PostgreSQL và Gemini AI",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

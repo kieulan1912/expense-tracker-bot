@@ -1,70 +1,106 @@
 # Lankv Expense Tracker Bot
 
-Telegram bot quản lý thu chi cá nhân, sử dụng Node.js, Telegraf và PostgreSQL.
+Telegram bot quản lý tài chính cá nhân bằng Node.js, Telegraf, PostgreSQL và
+Gemini. Bot ưu tiên xử lý local; Gemini chỉ được gọi cho câu tự nhiên hoặc ảnh
+hóa đơn để giảm quota và giữ free plan đủ dùng cho nhóm nhỏ.
 
-## Kiến trúc triển khai
+## Kiến trúc
 
 ```text
 Telegram
    ↓
-Northflank (Node.js service)
+Northflank (Node.js, long polling, daily scheduler)
+   ├── Local parser và business rules
+   ├── Gemini API khi cần AI/OCR
+   ├── QuickChart khi người dùng yêu cầu biểu đồ
    ↓
-Neon (PostgreSQL)
+Neon PostgreSQL
 ```
 
-- Northflank chạy bot và cung cấp health endpoint.
-- Neon lưu trữ dữ liệu PostgreSQL.
-- GitHub là nguồn deploy; secrets chỉ được lưu trong Runtime Variables của
-  Northflank.
+Mỗi `telegram_user_id` là một không gian dữ liệu độc lập. Bot chỉ chạy một
+instance để tránh xung đột Telegram long polling.
 
 ## Tính năng
 
-- Ghi khoản chi: `/chi 50k phở bò`
-- Ghi khoản thu: `/thu 15tr lương tháng 10`
-- Báo cáo tháng: `/baocao` hoặc `/baocao 10/2026`
-- Xem 10 giao dịch gần nhất: `/lichsu`
-- Xóa giao dịch của chính người dùng: `/xoa 123`
-- Xuất CSV: `/export` hoặc `/export 10/2026`
-- Phân loại giao dịch tự động theo từ khóa
-- Giới hạn người được phép sử dụng bằng Telegram User ID
-- Health check tại `/health` và readiness check tại `/ready`
-- Tự tạo bảng và index PostgreSQL khi khởi động
+- `/chi 50k phở bò`, `/thu 15tr lương` và các hậu tố tiền Việt.
+- Nhắn tự nhiên, tách nhiều giao dịch, hiểu ngày tương đối bằng Gemini.
+- Xác nhận giao dịch OCR, dữ liệu mơ hồ hoặc khoản tiền lớn.
+- Undo, lịch sử, xóa, báo cáo tháng và xuất CSV.
+- Ngân sách tổng/theo danh mục, hạn mức theo số ngày còn lại, cảnh báo 80%.
+- Cảnh báo khoản chi bất thường dựa trên trung bình 30 ngày.
+- Theo dõi cho vay, đi vay, thanh toán từng phần và hạn trả.
+- Giao dịch định kỳ: bot nhắc và chỉ ghi khi người dùng xác nhận.
+- Báo cáo tự động Chủ nhật/cuối tháng lúc 20:00 khi bật `/nhacnho on`.
+- OCR hóa đơn có consent, không lưu ảnh.
+- Biểu đồ QuickChart là tùy chọn qua `/bieudo`.
+- Ba phong cách; mặc định hài hước nhưng không trêu chọc các khoản nhạy cảm.
+- Quota AI theo user/toàn hệ thống, timeout, retry một lần và local fallback.
+- `/deletedata` xóa toàn bộ dữ liệu của chính người dùng.
 
-## Yêu cầu
-
-- Node.js 20 trở lên
-- Telegram bot token từ `@BotFather`
-- PostgreSQL, khuyến nghị Neon pooled connection
+Gõ `/help` trong Telegram để xem đầy đủ cú pháp.
 
 ## Chạy local
+
+Yêu cầu Node.js 20+ và PostgreSQL.
 
 ```bash
 npm install
 cp .env.example .env
-```
-
-Điền thông tin thật vào `.env`:
-
-```env
-TELEGRAM_BOT_TOKEN=token_tu_botfather
-DATABASE_URL=postgresql://user:password@host/neondb?sslmode=require
-DB_SSL=require
-ALLOWED_USER_IDS=
-APP_TIMEZONE=Asia/Ho_Chi_Minh
-NODE_ENV=development
-PORT=3000
-```
-
-Không commit `.env`, Telegram token hoặc database connection string lên GitHub.
-
-Chạy test và khởi động bot:
-
-```bash
 npm test
 npm start
 ```
 
-Các log thành công:
+Các biến bắt buộc:
+
+```env
+TELEGRAM_BOT_TOKEN=
+DATABASE_URL=postgresql://username:password@hostname:5432/database_name
+DB_SSL=require
+GEMINI_API_KEY=
+APP_TIMEZONE=Asia/Ho_Chi_Minh
+PORT=3000
+```
+
+Các biến tùy chọn và giá trị mặc định:
+
+```env
+ALLOWED_USER_IDS=
+GEMINI_MODEL=gemini-2.5-flash-lite
+AI_ENABLED=true
+AI_TEXT_DAILY_LIMIT_PER_USER=30
+AI_IMAGE_DAILY_LIMIT_PER_USER=5
+AI_GLOBAL_DAILY_LIMIT=200
+CONFIRMATION_THRESHOLD_VND=1000000
+BOT_RATE_LIMIT_PER_MINUTE=30
+SCHEDULER_ENABLED=true
+```
+
+Không commit `.env`, bot token, API key hoặc database URL. `GEMINI_API_KEY`
+chỉ được dùng ở runtime và không được ghi ra log.
+
+## Deploy Northflank
+
+### Service
+
+```text
+Type: Combined Service
+Repository: kieulan1912/expense-tracker-bot
+Branch: main
+Build: Dockerfile
+Port: 3000 HTTP
+Instances: 1
+```
+
+Đặt toàn bộ secret trong **Environment → Runtime variables**, không đặt trong
+Build arguments. Sau khi thay đổi biến, restart/redeploy service.
+
+### Health checks
+
+- Liveness: HTTP `GET /health`, port `3000`, interval `60s`, timeout `5s`.
+- `/ready` kiểm tra cả PostgreSQL; không dùng làm probe liên tục để tránh đánh
+  thức Neon khi không có hoạt động.
+
+### Log khởi động đúng
 
 ```text
 Kết nối PostgreSQL thành công
@@ -72,100 +108,42 @@ Health server đang chạy tại port 3000
 Telegram bot đã khởi động
 ```
 
-## Giới hạn người sử dụng
+Database được mở rộng tự động bằng các lệnh `CREATE TABLE IF NOT EXISTS` và
+`ADD COLUMN IF NOT EXISTS`; không cần chạy migration thủ công cho lần deploy
+này.
 
-Gửi `/id` cho bot để lấy Telegram User ID. Sau đó điền ID vào
-`ALLOWED_USER_IDS` và khởi động lại ứng dụng:
+## Danh mục
 
-```env
-ALLOWED_USER_IDS=123456789
-```
+| ID | Danh mục chi |
+|---:|---|
+| 1 | Ăn uống |
+| 2 | Di chuyển |
+| 3 | Hóa đơn & sinh hoạt |
+| 4 | Mua sắm & giải trí |
+| 5 | Sức khỏe |
+| 6 | Giáo dục & phát triển |
+| 7 | Cho tặng & gia đình |
+| 99 | Khác |
 
-Cho phép nhiều tài khoản bằng dấu phẩy:
+Khoản thu dùng ID `91`–`94` cho Lương, Thưởng, Đầu tư và Kinh doanh.
 
-```env
-ALLOWED_USER_IDS=123456789,987654321
-```
+## Quyền riêng tư và free-plan guardrails
 
-## Deploy lên Northflank
+- Lệnh rõ ràng không gọi AI.
+- Không lưu prompt, response AI hoặc ảnh hóa đơn.
+- Ảnh Telegram được xử lý trong RAM và giới hạn 5 MB.
+- OCR chỉ hoạt động sau khi user đồng ý.
+- Báo cáo text không gọi dịch vụ ngoài; chỉ `/bieudo` gửi tổng hợp tới
+  QuickChart.
+- Scheduler truy vấn công việc một lần mỗi ngày thay vì polling từng phút.
+- Free Tier Gemini có chính sách xử lý dữ liệu riêng; không nên gửi ảnh chứa
+  thông tin ngân hàng nhạy cảm nếu người dùng không chấp nhận chính sách đó.
 
-### 1. Tạo service
+## BotFather
 
-Tạo một **Combined Service** từ GitHub với cấu hình:
-
-```text
-Repository: kieulan1912/expense-tracker-bot
-Branch: main
-Build type: Dockerfile
-Dockerfile path: /Dockerfile
-```
-
-Free compute `nf-compute-10` (0.1 vCPU, 256 MB RAM) đủ cho bot cá nhân.
-
-### 2. Cấu hình networking
-
-Tạo public HTTP port:
-
-```text
-Port: 3000
-Protocol: HTTP
-Public: Enabled
-Health check: /health
-```
-
-### 3. Cấu hình Runtime Variables
-
-Trong **Environment → Runtime variables**, thêm:
-
-```env
-TELEGRAM_BOT_TOKEN=token_tu_botfather
-DATABASE_URL=neon_pooled_connection_string
-DB_SSL=require
-ALLOWED_USER_IDS=telegram_user_id
-APP_TIMEZONE=Asia/Ho_Chi_Minh
-NODE_ENV=production
-PORT=3000
-```
-
-Đánh dấu `TELEGRAM_BOT_TOKEN` và `DATABASE_URL` là secrets nếu giao diện cung
-cấp tùy chọn này. Không đặt các giá trị trên trong Build arguments.
-
-### 4. Kiểm tra sau deploy
-
-```text
-GET /health → {"status":"ok"}
-GET /ready  → {"status":"ready"}
-```
-
-Kiểm tra tab **Logs** để xác nhận kết nối PostgreSQL và Telegram thành công.
-Service bật CD sẽ tự deploy commit mới trên nhánh `main`.
-
-Ứng dụng sử dụng Telegram long polling, vì vậy chỉ chạy một instance bot tại một
-thời điểm. Hãy dừng tiến trình local trước khi chạy bản Northflank để tránh lỗi
-`409 Conflict`.
-
-## Quản lý hồ sơ Telegram bot
-
-Thực hiện trong `@BotFather`:
-
-- Đổi tên hiển thị: `/setname`
-- Đổi mô tả: `/setdescription`
-- Đổi phần giới thiệu ngắn: `/setabouttext`
-- Đổi avatar: `/setuserpic`
-- Đổi danh sách lệnh: `/setcommands`
-- Thu hồi token bị lộ: `/revoke`
-
-Các thay đổi tên, mô tả và avatar không yêu cầu deploy lại ứng dụng.
-
-## Cấu hình SSL PostgreSQL
-
-- `DB_SSL=disable`: chỉ dùng với kết nối tin cậy không yêu cầu TLS.
-- `DB_SSL=require`: bật TLS cho Neon hoặc nhà cung cấp PostgreSQL tương thích.
-- `DB_SSL=verify-full`: xác minh đầy đủ chứng chỉ và hostname khi môi trường hỗ
-  trợ.
-
-## Database schema
-
-Ứng dụng tự tạo bảng `financial_transactions`. Số tiền được lưu dưới dạng số
-nguyên VND để tránh sai số số thực. Mọi truy vấn thay đổi hoặc xóa dữ liệu đều
-giới hạn theo `telegram_user_id`.
+- `/setname`: đổi tên hiển thị.
+- `/setdescription`: đổi mô tả.
+- `/setabouttext`: đổi giới thiệu ngắn.
+- `/setuserpic`: đổi avatar.
+- `/setcommands`: đổi danh sách lệnh thủ công nếu cần.
+- `/revoke`: thu hồi token bị lộ.

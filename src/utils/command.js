@@ -14,8 +14,8 @@ function parseTransactionInput(text, command) {
     throw new InputError(`Sai cú pháp. Ví dụ: /${command} 50k phở bò`);
   }
 
-  if (description.length > 500) {
-    throw new InputError('Ghi chú không được dài quá 500 ký tự.');
+  if (description.length > 120) {
+    throw new InputError('Ghi chú không được dài quá 120 ký tự.');
   }
 
   return { amountText, description };

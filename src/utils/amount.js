@@ -5,7 +5,7 @@ function parseAmount(input) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '')
-    .replace(/₫|đ|vnd/g, '');
+    .replace(/₫|vnd/g, '');
 
   if (!value) {
     throw new InputError('Bạn chưa nhập số tiền.');
@@ -14,14 +14,25 @@ function parseAmount(input) {
   let multiplier = 1;
   let numberPart = value;
 
-  if (value.endsWith('tr')) {
-    multiplier = 1_000_000;
-    numberPart = value.slice(0, -2);
+  const suffixes = [
+    { values: ['triệu', 'trieu', 'củ', 'cu', 'tr'], multiplier: 1_000_000 },
+    { values: ['nghìn', 'nghin', 'ngàn', 'ngan', 'kđ', 'k'], multiplier: 1_000 },
+    { values: ['lét', 'let', 'tờ', 'to'], multiplier: 100_000 },
+  ];
+  const matchedSuffix = suffixes
+    .flatMap((group) =>
+      group.values.map((suffix) => ({ suffix, multiplier: group.multiplier })),
+    )
+    .sort((left, right) => right.suffix.length - left.suffix.length)
+    .find(({ suffix }) => value.endsWith(suffix));
+
+  if (matchedSuffix) {
+    multiplier = matchedSuffix.multiplier;
+    numberPart = value.slice(0, -matchedSuffix.suffix.length);
+  } else if (value.endsWith('đ')) {
+    numberPart = value.slice(0, -1);
   } else if (value.endsWith('m')) {
     multiplier = 1_000_000;
-    numberPart = value.slice(0, -1);
-  } else if (value.endsWith('k')) {
-    multiplier = 1_000;
     numberPart = value.slice(0, -1);
   }
 

@@ -1,17 +1,24 @@
 const { InputError } = require('../errors');
 
 function getCurrentMonth(timezone) {
+  const { month, year } = getCurrentDateParts(timezone);
+  return { month, year };
+}
+
+function getCurrentDateParts(timezone, date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: timezone,
     year: 'numeric',
     month: 'numeric',
-  }).formatToParts(new Date());
+    day: 'numeric',
+  }).formatToParts(date);
 
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
 
   return {
     month: Number(values.month),
     year: Number(values.year),
+    day: Number(values.day),
   };
 }
 
@@ -36,4 +43,4 @@ function parseMonth(input, timezone) {
   return { month, year };
 }
 
-module.exports = { parseMonth, getCurrentMonth };
+module.exports = { parseMonth, getCurrentMonth, getCurrentDateParts };
