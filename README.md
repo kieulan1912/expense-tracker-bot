@@ -25,13 +25,13 @@ instance để tránh xung đột Telegram long polling.
 - `/chi 50k phở bò`, `/thu 15tr lương` và các hậu tố tiền Việt.
 - Nhắn tự nhiên, tách nhiều giao dịch, hiểu ngày tương đối bằng Gemini.
 - Xác nhận giao dịch OCR, dữ liệu mơ hồ hoặc khoản tiền lớn.
-- Undo, lịch sử, xóa, báo cáo tháng và xuất CSV.
+- Undo, lịch sử tùy số lượng (`/lichsu 3`), xóa, báo cáo tháng và xuất CSV.
 - Ngân sách tổng/theo danh mục, hạn mức theo số ngày còn lại, cảnh báo 80%.
 - Cảnh báo khoản chi bất thường dựa trên trung bình 30 ngày.
 - Theo dõi cho vay, đi vay, thanh toán từng phần và hạn trả.
 - Giao dịch định kỳ: bot nhắc và chỉ ghi khi người dùng xác nhận.
 - Báo cáo tự động Chủ nhật/cuối tháng lúc 20:00 khi bật `/nhacnho on`.
-- OCR hóa đơn có consent, không lưu ảnh.
+- OCR hóa đơn JPEG, PNG, WebP, HEIC/HEIF có consent, không lưu ảnh.
 - Biểu đồ QuickChart là tùy chọn qua `/bieudo`.
 - Ba phong cách; mặc định hài hước nhưng không trêu chọc các khoản nhạy cảm.
 - Quota AI theo user/toàn hệ thống, timeout, retry một lần và local fallback.
@@ -71,6 +71,7 @@ AI_ENABLED=true
 AI_TEXT_DAILY_LIMIT_PER_USER=30
 AI_IMAGE_DAILY_LIMIT_PER_USER=5
 AI_GLOBAL_DAILY_LIMIT=200
+OCR_MAX_IMAGE_MB=10
 CONFIRMATION_THRESHOLD_VND=1000000
 BOT_RATE_LIMIT_PER_MINUTE=30
 SCHEDULER_ENABLED=true
@@ -132,7 +133,7 @@ Khoản thu dùng ID `91`–`94` cho Lương, Thưởng, Đầu tư và Kinh doa
 
 - Lệnh rõ ràng không gọi AI.
 - Không lưu prompt, response AI hoặc ảnh hóa đơn.
-- Ảnh Telegram được xử lý trong RAM và giới hạn 5 MB.
+- Ảnh Telegram được xử lý trong RAM và mặc định giới hạn 10 MB.
 - OCR chỉ hoạt động sau khi user đồng ý.
 - Báo cáo text không gọi dịch vụ ngoài; chỉ `/bieudo` gửi tổng hợp tới
   QuickChart.

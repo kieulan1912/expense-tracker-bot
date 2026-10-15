@@ -20,6 +20,7 @@ const { getCommandArguments, parseTransactionInput, parsePositiveInteger } = req
 const { parseMonth, getCurrentMonth, getCurrentDateParts } = require('./utils/month');
 const { transactionsToCsv } = require('./utils/csv');
 const { formatMonthlyReport, createChartUrl, formatBudgetStatus } = require('./report_service');
+const { resolveImageMime, looksLikeSupportedImage } = require('./utils/image');
 
 const bot = new Telegraf(config.telegramBotToken);
 const initializedUsers = new Set();
@@ -33,7 +34,7 @@ const helpMessage = [
   'Hoặc nhắn tự nhiên: “sáng nay phở 50k, cafe 35k”', '',
   'Báo cáo:',
   '/baocao [MM/YYYY] · /bieudo [MM/YYYY]',
-  '/lichsu · /export [MM/YYYY] · /xoa ID', '',
+  '/lichsu [số lượng] · /export [MM/YYYY] · /xoa ID', '',
   'Kế hoạch:',
   '/ngansach — xem ngân sách',
   '/ngansach 10tr — đặt tổng ngân sách',
@@ -120,6 +121,17 @@ async function sendSaved(ctx, saved, comment = '') {
   await ctx.reply(lines.join('\n').trim(), buttons);
 }
 
+function formatRecentTransactions(rows, title) {
+  const lines = rows.map((row) => {
+    const icon = row.transaction_type === 'expense' ? '📤' : '📥';
+    const description = row.description.length > 100
+      ? `${row.description.slice(0, 97)}...`
+      : row.description;
+    return `${icon} #${row.id} · ${formatMoney(row.amount)}\n${row.category} · ${description}\n${row.local_created_at}`;
+  });
+  return [title, '', ...lines].join('\n\n');
+}
+
 async function getBudgetWarning(userId) {
   const { month, year } = getCurrentMonth(config.timezone);
   const rows = await getBudgetStatus({ userId, month, year, timezone: config.timezone });
@@ -179,14 +191,12 @@ bot.command('bieudo', async (ctx) => {
 });
 
 bot.command('lichsu', async (ctx) => {
-  const rows = await getRecentTransactions({ userId: ctx.from.id, limit: 10, timezone: config.timezone });
+  const input = getCommandArguments(ctx.message.text, 'lichsu');
+  const limit = input ? parsePositiveInteger(input, 'Số giao dịch') : 10;
+  if (limit > 20) throw new InputError('Chỉ có thể xem tối đa 20 giao dịch mỗi lần.');
+  const rows = await getRecentTransactions({ userId: ctx.from.id, limit, timezone: config.timezone });
   if (!rows.length) return ctx.reply('📭 Bạn chưa có giao dịch nào.');
-  const lines = rows.map((row) => {
-    const icon = row.transaction_type === 'expense' ? '📤' : '📥';
-    const description = row.description.length > 100 ? `${row.description.slice(0, 97)}...` : row.description;
-    return `${icon} #${row.id} · ${formatMoney(row.amount)}\n${row.category} · ${description}\n${row.local_created_at}`;
-  });
-  await ctx.reply(['🕘 10 GIAO DỊCH GẦN NHẤT', '', ...lines].join('\n\n'));
+  await ctx.reply(formatRecentTransactions(rows, `🕘 ${rows.length} GIAO DỊCH GẦN NHẤT`));
 });
 
 bot.command('xoa', async (ctx) => {
@@ -338,6 +348,18 @@ bot.command('deletedata', (ctx) => ctx.reply('⚠️ Xóa vĩnh viễn toàn b�
 ])));
 
 async function saveAiResult(ctx, result, source) {
+  if (result.intent === 'HISTORY_REQ') {
+    const limit = result.limit || 10;
+    const rows = await getRecentTransactions({
+      userId: ctx.from.id,
+      limit,
+      timezone: config.timezone,
+    });
+    if (!rows.length) return ctx.reply('📭 Bạn chưa có giao dịch nào.');
+    return ctx.reply(
+      formatRecentTransactions(rows, `🕘 ${rows.length} GIAO DỊCH GẦN NHẤT`),
+    );
+  }
   if (result.intent === 'REPORT_REQ') {
     const { month, year } = getCurrentMonth(config.timezone);
     const rows = await getMonthlySummary({ userId: ctx.from.id, month, year, timezone: config.timezone });
@@ -382,23 +404,67 @@ async function saveAiResult(ctx, result, source) {
   await ctx.reply(result.reply || (result.intent === 'REPORT_REQ' ? 'Dùng /baocao hoặc /bieudo nhé.' : 'Tôi chuyên quản tiền; chuyện này xin phép đứng ngoài sổ sách 😄'));
 }
 
-bot.on('photo', async (ctx) => {
+async function requestOcrConsent(ctx) {
   const user = await getUser(ctx.from.id);
   if (!user?.ocr_consent) {
-    return ctx.reply('🔐 Ảnh sẽ được gửi tới Gemini để đọc và không được lưu lại. Bạn có đồng ý không? Sau khi đồng ý, hãy gửi lại ảnh.', Markup.inlineKeyboard([
+    await ctx.reply('🔐 Ảnh sẽ được gửi tới Gemini để đọc và không được lưu lại. Bạn có đồng ý không? Sau khi đồng ý, hãy gửi lại ảnh.', Markup.inlineKeyboard([
       Markup.button.callback('✅ Đồng ý OCR', 'ocr:accept'),
       Markup.button.callback('Không', 'ocr:decline'),
     ]));
+    return false;
+  }
+  return true;
+}
+
+async function handleOcrImage(ctx, { fileId, fileSize, declaredMime, filename }) {
+  if (!(await requestOcrConsent(ctx))) return;
+  if (fileSize && fileSize > config.ocrMaxImageMb * 1024 * 1024) {
+    throw new InputError(
+      `Ảnh quá lớn. Vui lòng gửi ảnh dưới ${config.ocrMaxImageMb} MB.`,
+    );
   }
   await ctx.reply('🔎 Đang đọc ảnh…');
-  const photo = ctx.message.photo.at(-1);
-  const link = await ctx.telegram.getFileLink(photo.file_id);
+  const link = await ctx.telegram.getFileLink(fileId);
   const response = await fetch(link, { signal: AbortSignal.timeout(15_000) });
   if (!response.ok) throw new Error(`Không tải được ảnh Telegram: ${response.status}`);
   const buffer = Buffer.from(await response.arrayBuffer());
-  const mimeType = response.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
+  const mimeType = resolveImageMime({
+    declaredMime,
+    responseMime: response.headers.get('content-type'),
+    filename,
+  });
+  if (!mimeType) {
+    throw new InputError('Bot chỉ hỗ trợ ảnh JPEG, PNG, WebP, HEIC hoặc HEIF.');
+  }
   const result = await analyzeImage({ userId: ctx.from.id, imageBuffer: buffer, mimeType, timezone: config.timezone });
   await saveAiResult(ctx, result, 'ocr');
+}
+
+bot.on('photo', async (ctx) => {
+  const photo = ctx.message.photo.at(-1);
+  await handleOcrImage(ctx, {
+    fileId: photo.file_id,
+    fileSize: photo.file_size,
+    declaredMime: 'image/jpeg',
+    filename: 'telegram-photo.jpg',
+  });
+});
+
+bot.on('document', async (ctx) => {
+  const document = ctx.message.document;
+  if (!looksLikeSupportedImage({
+    mimeType: document.mime_type,
+    filename: document.file_name,
+  })) {
+    await ctx.reply('❌ File này không phải ảnh được hỗ trợ. Hãy gửi JPEG, PNG, WebP, HEIC hoặc HEIF.');
+    return;
+  }
+  await handleOcrImage(ctx, {
+    fileId: document.file_id,
+    fileSize: document.file_size,
+    declaredMime: document.mime_type,
+    filename: document.file_name,
+  });
 });
 
 bot.on('text', async (ctx) => {

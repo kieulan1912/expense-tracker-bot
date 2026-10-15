@@ -36,7 +36,7 @@ async function main() {
     { command: 'thu', description: 'Ghi một khoản thu' },
     { command: 'baocao', description: 'Xem báo cáo tháng' },
     { command: 'bieudo', description: 'Xem biểu đồ chi tiêu' },
-    { command: 'lichsu', description: 'Xem giao dịch gần nhất' },
+    { command: 'lichsu', description: 'Xem N giao dịch gần nhất' },
     { command: 'xoa', description: 'Xóa một giao dịch' },
     { command: 'export', description: 'Xuất báo cáo CSV' },
     { command: 'ngansach', description: 'Quản lý ngân sách' },

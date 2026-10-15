@@ -26,3 +26,30 @@ test('validateResult từ chối amount và category không hợp lệ', () => {
     items: [{ amount: -1, category_id: 500, description: 'x', person_name: null, debt_type: null }],
   }));
 });
+
+test('validateResult đọc yêu cầu lấy N giao dịch gần nhất', () => {
+  const result = validateResult({
+    intent: 'HISTORY_REQ',
+    reply: '',
+    confidence: 0.99,
+    needs_confirmation: false,
+    occurred_at: null,
+    limit: 3,
+    items: [],
+  });
+  assert.equal(result.intent, 'HISTORY_REQ');
+  assert.equal(result.limit, 3);
+});
+
+test('validateResult giới hạn lịch sử tối đa 20 giao dịch', () => {
+  const result = validateResult({
+    intent: 'HISTORY_REQ',
+    reply: '',
+    confidence: 1,
+    needs_confirmation: false,
+    occurred_at: null,
+    limit: 100,
+    items: [],
+  });
+  assert.equal(result.limit, 20);
+});

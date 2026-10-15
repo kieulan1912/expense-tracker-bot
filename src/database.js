@@ -39,6 +39,41 @@ async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS source_key VARCHAR(100)
   `);
 
+  // Dữ liệu tạo trước khi có occurred_at nhận thời điểm deploy làm giá trị
+  // mặc định. Với lệnh cũ, created_at mới là thời gian giao dịch chính xác.
+  await pool.query(`
+    UPDATE financial_transactions
+    SET occurred_at = created_at
+    WHERE source = 'command'
+      AND source_key IS NULL
+      AND occurred_at IS DISTINCT FROM created_at
+  `);
+
+  // Chuẩn hóa category dạng text của phiên bản cũ sang category_id. Điều này
+  // ngăn cùng một danh mục xuất hiện thành hai dòng trong báo cáo.
+  await pool.query(`
+    UPDATE financial_transactions
+    SET category_id = CASE
+      WHEN transaction_type = 'expense' AND category = 'Ăn uống' THEN 1
+      WHEN transaction_type = 'expense' AND category = 'Di chuyển' THEN 2
+      WHEN transaction_type = 'expense'
+        AND category IN ('Hóa đơn', 'Hóa đơn & sinh hoạt') THEN 3
+      WHEN transaction_type = 'expense'
+        AND category IN ('Mua sắm', 'Giải trí', 'Mua sắm & giải trí') THEN 4
+      WHEN transaction_type = 'expense' AND category = 'Sức khỏe' THEN 5
+      WHEN transaction_type = 'expense'
+        AND category IN ('Giáo dục', 'Giáo dục & phát triển') THEN 6
+      WHEN transaction_type = 'expense'
+        AND category = 'Cho tặng & gia đình' THEN 7
+      WHEN transaction_type = 'income' AND category = 'Lương' THEN 91
+      WHEN transaction_type = 'income' AND category = 'Thưởng' THEN 92
+      WHEN transaction_type = 'income' AND category = 'Đầu tư' THEN 93
+      WHEN transaction_type = 'income' AND category = 'Kinh doanh' THEN 94
+      ELSE category_id
+    END
+    WHERE category_id = 99 AND category <> 'Khác'
+  `);
+
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_financial_transactions_user_created
     ON financial_transactions (telegram_user_id, occurred_at DESC)

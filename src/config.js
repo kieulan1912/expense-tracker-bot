@@ -88,6 +88,7 @@ const config = {
     'AI_GLOBAL_DAILY_LIMIT',
     200,
   ),
+  ocrMaxImageMb: parsePositiveIntegerEnvironment('OCR_MAX_IMAGE_MB', 10),
   confirmationThreshold: parsePositiveIntegerEnvironment(
     'CONFIRMATION_THRESHOLD_VND',
     1_000_000,

@@ -56,13 +56,36 @@ async function createTransactions({ userId, items, source = 'ai', sourceKey = nu
 
 async function getMonthlySummary({ userId, month, year, timezone }) {
   const result = await pool.query(
-    `SELECT transaction_type, category_id, MAX(category) AS legacy_category,
-            SUM(amount)::BIGINT AS total
-     FROM financial_transactions
-     WHERE telegram_user_id = $1
-       AND EXTRACT(MONTH FROM occurred_at AT TIME ZONE $4) = $2
-       AND EXTRACT(YEAR FROM occurred_at AT TIME ZONE $4) = $3
-     GROUP BY transaction_type, category_id
+    `WITH normalized AS (
+       SELECT transaction_type, amount, category,
+         CASE
+           WHEN category_id <> 99 THEN category_id
+           WHEN transaction_type = 'expense' AND category = 'Ăn uống' THEN 1
+           WHEN transaction_type = 'expense' AND category = 'Di chuyển' THEN 2
+           WHEN transaction_type = 'expense'
+             AND category IN ('Hóa đơn', 'Hóa đơn & sinh hoạt') THEN 3
+           WHEN transaction_type = 'expense'
+             AND category IN ('Mua sắm', 'Giải trí', 'Mua sắm & giải trí') THEN 4
+           WHEN transaction_type = 'expense' AND category = 'Sức khỏe' THEN 5
+           WHEN transaction_type = 'expense'
+             AND category IN ('Giáo dục', 'Giáo dục & phát triển') THEN 6
+           WHEN transaction_type = 'expense'
+             AND category = 'Cho tặng & gia đình' THEN 7
+           WHEN transaction_type = 'income' AND category = 'Lương' THEN 91
+           WHEN transaction_type = 'income' AND category = 'Thưởng' THEN 92
+           WHEN transaction_type = 'income' AND category = 'Đầu tư' THEN 93
+           WHEN transaction_type = 'income' AND category = 'Kinh doanh' THEN 94
+           ELSE 99
+         END AS normalized_category_id
+       FROM financial_transactions
+       WHERE telegram_user_id = $1
+         AND EXTRACT(MONTH FROM occurred_at AT TIME ZONE $4) = $2
+         AND EXTRACT(YEAR FROM occurred_at AT TIME ZONE $4) = $3
+     )
+     SELECT transaction_type, normalized_category_id AS category_id,
+            MAX(category) AS legacy_category, SUM(amount)::BIGINT AS total
+     FROM normalized
+     GROUP BY transaction_type, normalized_category_id
      ORDER BY transaction_type, total DESC`,
     [userId, month, year, timezone],
   );
