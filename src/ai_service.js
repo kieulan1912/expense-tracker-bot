@@ -131,8 +131,6 @@ function validateResult(raw) {
 }
 
 async function requestGemini(contents) {
-  const model = encodeURIComponent(config.geminiModel);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   const body = {
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: contents }],
@@ -144,27 +142,45 @@ async function requestGemini(contents) {
     },
   };
   let lastError;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiApiKey },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!response.ok) {
-        const error = new Error(`Gemini HTTP ${response.status}`);
-        error.retryable = response.status === 429 || response.status >= 500;
+  const models = [...new Set([config.geminiModel, ...config.geminiFallbackModels])];
+
+  for (const modelName of models) {
+    const model = encodeURIComponent(modelName);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiApiKey },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok) {
+          const providerBody = await response.json().catch(() => ({}));
+          const providerMessage = String(providerBody.error?.message || '')
+            .replace(/\s+/g, ' ')
+            .slice(0, 300);
+          const error = new Error(
+            `Gemini model ${modelName} HTTP ${response.status}${providerMessage ? `: ${providerMessage}` : ''}`,
+          );
+          error.status = response.status;
+          error.retryable = response.status === 429 || response.status >= 500;
+          throw error;
+        }
+        const payload = await response.json();
+        const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error(`Gemini model ${modelName} không trả về nội dung`);
+        return validateResult(JSON.parse(text));
+      } catch (error) {
+        lastError = error;
+        if (error.status === 404) {
+          console.warn(`Gemini model không khả dụng, đang fallback: ${modelName}`);
+          break;
+        }
+        if (attempt === 0 && (error.retryable || error.name === 'TimeoutError')) continue;
         throw error;
       }
-      const payload = await response.json();
-      const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) throw new Error('Gemini không trả về nội dung');
-      return validateResult(JSON.parse(text));
-    } catch (error) {
-      lastError = error;
-      if (attempt === 0 && (error.retryable || error.name === 'TimeoutError')) continue;
-      break;
     }
   }
   throw lastError;

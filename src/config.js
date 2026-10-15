@@ -70,7 +70,11 @@ const config = {
   timezone: process.env.APP_TIMEZONE?.trim() || 'Asia/Ho_Chi_Minh',
   geminiApiKey: process.env.GEMINI_API_KEY?.trim() || '',
   geminiModel:
-    process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash-lite',
+    process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite',
+  geminiFallbackModels: (process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.8-flash')
+    .split(',')
+    .map((model) => model.trim())
+    .filter(Boolean),
   aiEnabled: parseBooleanEnvironment('AI_ENABLED', true),
   aiTextDailyLimit: parsePositiveIntegerEnvironment(
     'AI_TEXT_DAILY_LIMIT_PER_USER',
