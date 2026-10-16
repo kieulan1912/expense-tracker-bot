@@ -1,0 +1,53 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { InputError } = require('../src/domain/errors');
+const { parseTransactionInput } = require('../src/utils/command');
+
+test('giao dịch nhận số tiền ở đầu, cuối hoặc giữa nội dung', () => {
+  assert.deepEqual(parseTransactionInput('/chi 15k ăn xôi sáng', 'chi'), {
+    amountText: '15k',
+    description: 'ăn xôi sáng',
+  });
+  assert.deepEqual(parseTransactionInput('/chi ăn xôi sáng 15k', 'chi'), {
+    amountText: '15k',
+    description: 'ăn xôi sáng',
+  });
+  assert.deepEqual(parseTransactionInput('/chi ăn xôi 15k buổi sáng', 'chi'), {
+    amountText: '15k',
+    description: 'ăn xôi buổi sáng',
+  });
+});
+
+test('giao dịch nhận số tiền có hậu tố tách bằng khoảng trắng', () => {
+  assert.deepEqual(parseTransactionInput('/thu tiền thưởng 2 triệu', 'thu'), {
+    amountText: '2 triệu',
+    description: 'tiền thưởng',
+  });
+  assert.deepEqual(parseTransactionInput('/chi 50.000 VNĐ ăn trưa', 'chi'), {
+    amountText: '50.000 VND',
+    description: 'ăn trưa',
+  });
+});
+
+test('số đếm trong ghi chú không bị hiểu nhầm khi đã có số tiền rõ ràng', () => {
+  assert.deepEqual(parseTransactionInput('/chi 50k tiền điện tháng 10', 'chi'), {
+    amountText: '50k',
+    description: 'tiền điện tháng 10',
+  });
+  assert.deepEqual(parseTransactionInput('/chi mua 2 vé xem phim 150000', 'chi'), {
+    amountText: '150000',
+    description: 'mua 2 vé xem phim',
+  });
+  assert.deepEqual(parseTransactionInput('/thu lương tháng 10 20tr', 'thu'), {
+    amountText: '20tr',
+    description: 'lương tháng 10',
+  });
+});
+
+test('giao dịch từ chối nhiều số tiền rõ ràng hoặc thiếu ghi chú', () => {
+  assert.throws(
+    () => parseTransactionInput('/chi trả 50k cho hóa đơn 100k', 'chi'),
+    InputError,
+  );
+  assert.throws(() => parseTransactionInput('/chi 50k', 'chi'), InputError);
+});

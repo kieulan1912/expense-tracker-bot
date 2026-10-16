@@ -1,4 +1,5 @@
 const { InputError } = require('../domain/errors');
+const { parseAmount } = require('./amount');
 
 function getCommandArguments(text, command) {
   const expression = new RegExp(`^/${command}(?:@\\w+)?\\s*`, 'i');
@@ -7,18 +8,69 @@ function getCommandArguments(text, command) {
 
 function parseTransactionInput(text, command) {
   const input = getCommandArguments(text, command);
-  const [amountText, ...descriptionParts] = input.split(/\s+/);
-  const description = descriptionParts.join(' ').trim();
+  const parts = input.split(/\s+/).filter(Boolean);
+  const candidates = [];
 
-  if (!amountText || !description) {
-    throw new InputError(`Sai cú pháp. Ví dụ: /${command} 50k phở bò`);
+  for (let start = 0; start < parts.length; start += 1) {
+    for (const width of [2, 1]) {
+      const end = start + width;
+      if (end > parts.length) continue;
+      if (width === 2) {
+        const unit = parts[start + 1].toLocaleLowerCase('vi');
+        const isStandaloneUnit = /^(?:kđ|k|tr|m|triệu|trieu|củ|cu|nghìn|nghin|ngàn|ngan|lít|lit|lét|let|tờ|to|vnđ|vnd|đ|₫)$/.test(unit);
+        if (!isStandaloneUnit) continue;
+      }
+      const amountText = parts.slice(start, end).join(' ');
+      const parseableAmountText = amountText.replace(/vnđ/giu, 'VND');
+      const compact = amountText.toLocaleLowerCase('vi').replace(/\s+/g, '');
+      const hasMoneyMarker = /(?:kđ|k|tr|m|triệu|trieu|củ|cu|nghìn|nghin|ngàn|ngan|lít|lit|lét|let|tờ|to|đ|vnd)$/.test(compact);
+      const hasThousandsSeparator = /^\d{1,3}(?:[.,]\d{3})+$/.test(compact);
+      const plainAmount = /^\d+$/.test(compact) && Number(compact) >= 1_000;
+      if (!hasMoneyMarker && !hasThousandsSeparator && !plainAmount) continue;
+
+      try {
+        parseAmount(parseableAmountText);
+        candidates.push({
+          start,
+          end,
+          amountText: parseableAmountText,
+          explicit: hasMoneyMarker || hasThousandsSeparator,
+        });
+      } catch {
+        // Không phải biểu diễn tiền hợp lệ; tiếp tục tìm ở vị trí khác.
+      }
+    }
+  }
+
+  const preferred = candidates.some((candidate) => candidate.explicit)
+    ? candidates.filter((candidate) => candidate.explicit)
+    : candidates;
+  const nonOverlapping = preferred.filter((candidate) =>
+    !preferred.some((other) =>
+      other !== candidate
+      && other.start <= candidate.start
+      && other.end >= candidate.end
+      && other.end - other.start > candidate.end - candidate.start),
+  );
+
+  if (nonOverlapping.length > 1) {
+    throw new InputError(`Chỉ nhập một số tiền. Ví dụ: /${command} ăn xôi sáng 15k`);
+  }
+
+  const amount = nonOverlapping[0];
+  const description = amount
+    ? parts.filter((_, index) => index < amount.start || index >= amount.end).join(' ').trim()
+    : '';
+
+  if (!amount || !description) {
+    throw new InputError(`Sai cú pháp. Ví dụ: /${command} 50k phở bò hoặc /${command} phở bò 50k`);
   }
 
   if (description.length > 120) {
     throw new InputError('Ghi chú không được dài quá 120 ký tự.');
   }
 
-  return { amountText, description };
+  return { amountText: amount.amountText, description };
 }
 
 function parsePositiveInteger(input, label) {

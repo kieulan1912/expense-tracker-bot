@@ -86,14 +86,14 @@ function registerMenuHandlers(bot, {
     if (ctx.state.ledger.role === 'viewer') {
       return ctx.reply('⛔ Bạn đang có quyền Người xem nên không thể ghi khoản chi.');
     }
-    return ctx.reply('Gửi theo mẫu: /chi 50k ăn phở\nHoặc nhắn tự nhiên: sáng nay ăn phở 50 nghìn.');
+    return ctx.reply('Gửi: /chi 50k ăn phở hoặc /chi ăn phở 50k\nHoặc nhắn tự nhiên: sáng nay ăn phở 50 nghìn.');
   });
   bot.action('menu:income', async (ctx) => {
     await ctx.answerCbQuery();
     if (ctx.state.ledger.role === 'viewer') {
       return ctx.reply('⛔ Bạn đang có quyền Người xem nên không thể ghi khoản thu.');
     }
-    return ctx.reply('Gửi theo mẫu: /thu 20tr lương tháng 10.');
+    return ctx.reply('Gửi: /thu 20tr lương tháng 10 hoặc /thu lương tháng 10 20tr.');
   });
   bot.action('menu:reports', async (ctx) => {
     await ctx.answerCbQuery();

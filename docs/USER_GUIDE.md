@@ -71,8 +71,14 @@ member không thấy nút mời, đổi quyền hoặc xóa sổ.
 ```text
 /chi 50k ăn phở
 /chi 15k ăn xôi sáng
+/chi ăn xôi sáng 15k
+/chi mua 2 vé xem phim 150k
 /thu 20tr lương tháng 10
+/thu lương tháng 10 20tr
 ```
+
+Số tiền có thể nằm ở đầu, giữa hoặc cuối nội dung. Mỗi lệnh chỉ nên chứa một
+số tiền rõ ràng; các số đếm nhỏ trong ghi chú, như `2 vé`, được giữ nguyên.
 
 Với `/chi` và `/thu`, bot phân loại ngay trên server bằng bảng từ khóa local.
 Bot không gọi Gemini cho các lệnh này nên không tốn AI quota. Nội dung có hoặc

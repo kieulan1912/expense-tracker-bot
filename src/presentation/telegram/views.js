@@ -7,7 +7,7 @@ const { telegramDisplayName } = require('./context');
 const helpMessage = [
   '📖 QUẢN GIA TÀI CHÍNH AI', '',
   'Dùng /menu để mở toàn bộ chức năng bằng nút.', '',
-  'Ghi nhanh:', '/chi 50k phở bò', '/thu 15tr lương tháng 10',
+  'Ghi nhanh:', '/chi 50k phở bò', '/chi phở bò 50k', '/thu lương tháng 10 15tr',
   'Hoặc nhắn tự nhiên: “sáng nay phở 50k, cafe 35k”', '',
   'Báo cáo:',
   '/baocao [MM/YYYY] · /bieudo [MM/YYYY]',

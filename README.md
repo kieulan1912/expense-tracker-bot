@@ -34,7 +34,8 @@ domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ w
 
 ## Tính năng
 
-- `/chi 50k phở bò`, `/thu 15tr lương` và các hậu tố tiền Việt.
+- `/chi 50k phở bò`, `/chi phở bò 50k`, `/thu lương 15tr`; số tiền có thể
+  nằm ở đầu, giữa hoặc cuối nội dung.
 - Lệnh trực tiếp được phân loại bằng bảng từ khóa local có chuẩn hóa dấu tiếng
   Việt; không dùng Gemini và không tiêu tốn AI quota.
 - Nhắn tự nhiên, tách nhiều giao dịch, hiểu ngày tương đối bằng Gemini.
