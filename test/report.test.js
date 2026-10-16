@@ -11,11 +11,34 @@ const rows = [
   { transaction_type: 'expense', category: 'Ăn uống', total: 2_000_000 },
 ];
 
-test('báo cáo tính đúng thu chi và số dư', () => {
-  const text = formatMonthlyReport(rows, 10, 2026);
+test('báo cáo tách chênh lệch thu chi và ngân sách còn lại', () => {
+  const text = formatMonthlyReport(rows, 10, 2026, 'Gia đình', [
+    { category_id: null, amount: 10_000_000, spent: 2_000_000 },
+    { category_id: 1, amount: 3_000_000, spent: 2_000_000 },
+  ]);
   assert.match(text, /Tổng thu: 10\.000\.000 VNĐ/);
   assert.match(text, /Tổng chi: 2\.000\.000 VNĐ/);
-  assert.match(text, /Số dư: 8\.000\.000 VNĐ/);
+  assert.match(text, /Chênh lệch thu–chi: 8\.000\.000 VNĐ/);
+  assert.match(text, /Ngân sách tháng: 10\.000\.000 VNĐ/);
+  assert.match(text, /Ngân sách còn lại: 8\.000\.000 VNĐ/);
+  assert.match(text, /Đã sử dụng: 20%/);
+  assert.doesNotMatch(text, /13\.000\.000 VNĐ/);
+});
+
+test('báo cáo không dùng ngân sách danh mục làm ngân sách tổng', () => {
+  const text = formatMonthlyReport(rows, 10, 2026, '', [
+    { category_id: 1, amount: 3_000_000, spent: 2_000_000 },
+  ]);
+  assert.doesNotMatch(text, /Số dư:/);
+  assert.doesNotMatch(text, /Ngân sách tháng:/);
+});
+
+test('báo cáo hiển thị số vượt ngân sách', () => {
+  const text = formatMonthlyReport(rows, 10, 2026, '', [
+    { category_id: null, amount: 1_500_000, spent: 2_000_000 },
+  ]);
+  assert.match(text, /Vượt ngân sách: 500\.000 VNĐ/);
+  assert.match(text, /Đã sử dụng: 133,3%/);
 });
 
 test('chart chỉ được tạo khi có khoản chi', () => {

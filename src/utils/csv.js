@@ -19,8 +19,20 @@ function transactionsToCsv(rows) {
     row.created_by_name,
     row.local_created_at,
   ]);
+  const totalIncome = rows
+    .filter((row) => row.transaction_type === 'income')
+    .reduce((sum, row) => sum + Number(row.amount), 0);
+  const totalExpense = rows
+    .filter((row) => row.transaction_type === 'expense')
+    .reduce((sum, row) => sum + Number(row.amount), 0);
+  const summary = [
+    ['', '', '', '', '', '', ''],
+    ['', 'Tổng thu', totalIncome, '', '', '', ''],
+    ['', 'Tổng chi', totalExpense, '', '', '', ''],
+    ['', 'Chênh lệch thu-chi', totalIncome - totalExpense, '', '', '', ''],
+  ];
 
-  return `\uFEFF${[header, ...body]
+  return `\uFEFF${[header, ...body, ...summary]
     .map((columns) => columns.map(escapeCsv).join(','))
     .join('\r\n')}`;
 }

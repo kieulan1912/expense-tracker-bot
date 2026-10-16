@@ -10,6 +10,7 @@ function createTestScheduler() {
       markRecurringPrompted: async () => {},
       getDueDebts: async () => [],
       markDebtReminded: async () => {},
+      getBudgetStatus: async () => [],
     },
     users: { getReminderUsers: async () => [] },
     transactions: { getMonthlySummary: async () => [] },

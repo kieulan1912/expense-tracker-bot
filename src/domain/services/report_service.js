@@ -9,7 +9,7 @@ function summarizeRows(rows) {
   return { incomeRows, expenseRows, income, expense };
 }
 
-function formatMonthlyReport(rows, month, year, ledgerName = '') {
+function formatMonthlyReport(rows, month, year, ledgerName = '', budgetRows = []) {
   const { incomeRows, expenseRows, income, expense } = summarizeRows(rows);
   const lines = [
     `📊 BÁO CÁO THÁNG ${month}/${year}`,
@@ -22,7 +22,28 @@ function formatMonthlyReport(rows, month, year, ledgerName = '') {
   if (expenseRows.length) {
     lines.push('📤 KHOẢN CHI', ...expenseRows.map((row) => `• ${row.category}: ${formatMoney(row.total)}`), '');
   }
-  lines.push(`Tổng thu: ${formatMoney(income)}`, `Tổng chi: ${formatMoney(expense)}`, `Số dư: ${formatMoney(income - expense)}`);
+  lines.push(
+    `Tổng thu: ${formatMoney(income)}`,
+    `Tổng chi: ${formatMoney(expense)}`,
+    `Chênh lệch thu–chi: ${formatMoney(income - expense)}`,
+  );
+
+  const totalBudget = budgetRows.find(
+    (row) => row.category_id === null || row.category_id === undefined,
+  );
+  if (totalBudget) {
+    const budget = Number(totalBudget.amount);
+    const remaining = budget - expense;
+    const usedPercent = budget > 0 ? (expense / budget) * 100 : 0;
+    const percentText = new Intl.NumberFormat('vi-VN', {
+      maximumFractionDigits: 1,
+    }).format(usedPercent);
+    lines.push('', `🎯 Ngân sách tháng: ${formatMoney(budget)}`);
+    lines.push(remaining >= 0
+      ? `💰 Ngân sách còn lại: ${formatMoney(remaining)}`
+      : `⚠️ Vượt ngân sách: ${formatMoney(Math.abs(remaining))}`);
+    lines.push(`📈 Đã sử dụng: ${percentText}%`);
+  }
   return lines.join('\n');
 }
 

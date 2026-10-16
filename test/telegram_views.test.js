@@ -29,10 +29,12 @@ test('chi tiết báo cáo phân trang và escape nội dung Telegram HTML', () 
   assert.match(result.text, /Trang 2\/2 · 9 giao dịch/);
   assert.match(result.text, /#9/);
   assert.doesNotMatch(result.text, /#1\s/);
-  assert.match(result.text, /09\/10 08:30/);
+  assert.match(result.text, /Thu 90\.000 VNĐ/);
+  assert.match(result.text, /09\/10\/2026 · 08:30/);
   assert.match(result.text, /Gia đình &amp; Bạn/);
   assert.match(result.text, /&lt;thưởng quý&gt;/);
   assert.match(result.text, /Lân &lt;Admin&gt;/);
+  assert.doesNotMatch(result.text, /<pre>/);
   assert.ok(result.text.length < 4096);
 });
 

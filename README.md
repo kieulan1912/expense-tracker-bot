@@ -40,6 +40,8 @@ domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ w
 - Undo, lịch sử tùy số lượng (`/lichsu 3`), xóa, báo cáo tháng và xuất CSV.
 - Báo cáo tháng có nút xem chi tiết trực tiếp trong Telegram, phân trang 8 giao
   dịch và hiển thị người ghi cho sổ chung.
+- Báo cáo phân biệt chênh lệch thu–chi với ngân sách còn lại; CSV có tổng thu,
+  tổng chi và chênh lệch ở cuối file.
 - Ngân sách tổng/theo danh mục, hạn mức theo số ngày còn lại, cảnh báo 80%.
 - Cảnh báo khoản chi bất thường dựa trên trung bình 30 ngày.
 - Theo dõi cho vay, đi vay, thanh toán từng phần và hạn trả.

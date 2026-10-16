@@ -10,6 +10,7 @@ function createScheduler({ config, finance, users, transactions }) {
     markRecurringPrompted,
     getDueDebts,
     markDebtReminded,
+    getBudgetStatus,
   } = finance;
   const { getReminderUsers } = users;
   const { getMonthlySummary } = transactions;
@@ -59,10 +60,14 @@ async function runDailyJobs(telegram) {
   const users = await getReminderUsers();
   for (const user of users) {
     if (!user.active_ledger_id) continue;
-    const rows = await getMonthlySummary({ ledgerId: user.active_ledger_id, month: now.month, year: now.year, timezone: user.timezone });
+    const reportParams = { ledgerId: user.active_ledger_id, month: now.month, year: now.year, timezone: user.timezone };
+    const [rows, budgetRows] = await Promise.all([
+      getMonthlySummary(reportParams),
+      getBudgetStatus(reportParams),
+    ]);
     if (!rows.length) continue;
     const prefix = now.day === lastDay ? '🗓 Tổng kết cuối tháng\n\n' : '🗓 Điểm lại tuần này (lũy kế tháng)\n\n';
-    await telegram.sendMessage(user.chat_id, prefix + formatMonthlyReport(rows, now.month, now.year, user.active_ledger_name)).catch((error) => {
+    await telegram.sendMessage(user.chat_id, prefix + formatMonthlyReport(rows, now.month, now.year, user.active_ledger_name, budgetRows)).catch((error) => {
       console.error('Không thể gửi báo cáo định kỳ:', error.message);
     });
   }

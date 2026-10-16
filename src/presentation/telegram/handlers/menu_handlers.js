@@ -136,10 +136,14 @@ function registerMenuHandlers(bot, {
   bot.action('report:current', async (ctx) => {
     await ctx.answerCbQuery();
     const { month, year } = getCurrentMonth(config.timezone);
-    const rows = await getMonthlySummary({ ledgerId: ctx.state.ledger.id, month, year, timezone: config.timezone });
+    const reportParams = { ledgerId: ctx.state.ledger.id, month, year, timezone: config.timezone };
+    const [rows, budgetRows] = await Promise.all([
+      getMonthlySummary(reportParams),
+      getBudgetStatus(reportParams),
+    ]);
     if (!rows.length) return ctx.reply(`📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
     return ctx.reply(
-      formatMonthlyReport(rows, month, year, ctx.state.ledger.name),
+      formatMonthlyReport(rows, month, year, ctx.state.ledger.name, budgetRows),
       monthlyReportKeyboard(ctx.state.ledger.id, month, year),
     );
   });

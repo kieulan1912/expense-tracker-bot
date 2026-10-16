@@ -91,10 +91,10 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;');
 }
 
-function compactTransactionDate(value) {
+function formatTransactionDateTime(value) {
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?/);
-  if (!match) return '--/-- --:--';
-  return `${match[3]}/${match[2]} ${match[4] || '--'}:${match[5] || '--'}`;
+  if (!match) return '--/--/---- · --:--';
+  return `${match[3]}/${match[2]}/${match[1]} · ${match[4] || '--'}:${match[5] || '--'}`;
 }
 
 function truncate(value, length) {
@@ -110,20 +110,10 @@ function formatMonthlyTransactionDetails(
   const currentPage = Math.min(Math.max(1, Number(page) || 1), totalPages);
   const start = (currentPage - 1) * pageSize;
   const items = rows.slice(start, start + pageSize);
-  const table = [
-    'ID    Ngày giờ     Loại      Số tiền',
-    ...items.map((row) => {
-      const id = `#${row.id}`.padEnd(6);
-      const date = compactTransactionDate(row.local_created_at).padEnd(14);
-      const type = (row.transaction_type === 'income' ? 'Thu' : 'Chi').padEnd(7);
-      const amount = formatMoney(row.amount).replace(' VNĐ', '');
-      return `${id}${date}${type}${amount.padStart(12)}`;
-    }),
-  ];
   const details = items.flatMap((row) => [
-    `${row.transaction_type === 'income' ? '📥' : '📤'} <b>#${escapeHtml(row.id)} · ${escapeHtml(row.category)}</b>`,
+    `${row.transaction_type === 'income' ? '📥' : '📤'} <b>#${escapeHtml(row.id)} · ${row.transaction_type === 'income' ? 'Thu' : 'Chi'} ${escapeHtml(formatMoney(row.amount))}</b> · ${escapeHtml(truncate(row.category, 40))}`,
+    `🗓 ${escapeHtml(formatTransactionDateTime(row.local_created_at))} · 👤 ${escapeHtml(truncate(row.created_by_name, 40) || 'Không xác định')}`,
     `📝 ${escapeHtml(truncate(row.description, 80) || 'Không có ghi chú')}`,
-    `👤 ${escapeHtml(truncate(row.created_by_name, 50) || 'Không xác định')}`,
     '',
   ]);
 
@@ -132,8 +122,6 @@ function formatMonthlyTransactionDetails(
       `📋 <b>CHI TIẾT THÁNG ${month}/${year}</b>`,
       ...(ledgerName ? [`📒 ${escapeHtml(ledgerName)}`] : []),
       `Trang ${currentPage}/${totalPages} · ${rows.length} giao dịch`,
-      '',
-      `<pre>${escapeHtml(table.join('\n'))}</pre>`,
       '',
       ...details,
     ].join('\n').trim(),

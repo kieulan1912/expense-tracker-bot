@@ -132,15 +132,16 @@ function registerFinanceHandlers(bot, {
   bot.command('baocao', async (ctx) => {
     const input = getCommandArguments(ctx.message.text, 'baocao');
     const { month, year } = parseMonth(input, config.timezone);
-    const rows = await getMonthlySummary({
-      ledgerId: ctx.state.ledger.id,
-      month,
-      year,
-      timezone: config.timezone,
-    });
+    const reportParams = {
+      ledgerId: ctx.state.ledger.id, month, year, timezone: config.timezone,
+    };
+    const [rows, budgetRows] = await Promise.all([
+      getMonthlySummary(reportParams),
+      getBudgetStatus(reportParams),
+    ]);
     if (!rows.length) return ctx.reply(`📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
     return ctx.reply(
-      formatMonthlyReport(rows, month, year, ctx.state.ledger.name),
+      formatMonthlyReport(rows, month, year, ctx.state.ledger.name, budgetRows),
       monthlyReportKeyboard(ctx.state.ledger.id, month, year),
     );
   });
@@ -195,16 +196,15 @@ function registerFinanceHandlers(bot, {
     if (!access) {
       return ctx.answerCbQuery('Bạn không còn quyền xem sổ này.', { show_alert: true });
     }
-    const rows = await getMonthlySummary({
-      ledgerId,
-      month,
-      year,
-      timezone: config.timezone,
-    });
+    const reportParams = { ledgerId, month, year, timezone: config.timezone };
+    const [rows, budgetRows] = await Promise.all([
+      getMonthlySummary(reportParams),
+      getBudgetStatus(reportParams),
+    ]);
     await ctx.answerCbQuery();
     if (!rows.length) return ctx.editMessageText('📭 Không còn giao dịch trong tháng này.');
     return ctx.editMessageText(
-      formatMonthlyReport(rows, month, year, access.name),
+      formatMonthlyReport(rows, month, year, access.name, budgetRows),
       monthlyReportKeyboard(ledgerId, month, year),
     );
   });
