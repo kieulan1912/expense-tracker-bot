@@ -1,6 +1,6 @@
 # Lankv Expense Tracker Bot
 
-Telegram bot quản lý tài chính cá nhân bằng Node.js, Telegraf, PostgreSQL và
+Telegram bot quản lý tài chính cá nhân bằng Node.js, Telegram, PostgreSQL và
 Gemini. Bot ưu tiên xử lý local; Gemini chỉ được gọi cho câu tự nhiên hoặc ảnh
 hóa đơn để giảm quota và giữ free plan đủ dùng cho nhóm nhỏ.
 
@@ -43,8 +43,8 @@ domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ w
 - Undo, lịch sử tùy số lượng (`/lichsu 3`), xóa, báo cáo tháng và xuất CSV.
 - Báo cáo tháng có nút xem chi tiết trực tiếp trong Telegram, phân trang 8 giao
   dịch và hiển thị người ghi cho sổ chung.
-- Báo cáo phân biệt chênh lệch thu–chi với ngân sách còn lại; CSV có tổng thu,
-  tổng chi và chênh lệch ở cuối file.
+- Báo cáo phân biệt chênh lệch thu–chi với ngân sách còn lại; CSV định dạng số
+  tiền theo hàng nghìn và có tổng thu, tổng chi, chênh lệch ở cuối file.
 - Ngân sách tổng/theo danh mục, hạn mức theo số ngày còn lại, cảnh báo 80%.
 - Cảnh báo khoản chi bất thường dựa trên trung bình 30 ngày.
 - Theo dõi cho vay, đi vay, thanh toán từng phần và hạn trả.
@@ -56,7 +56,7 @@ domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ w
 - Quota AI theo user/toàn hệ thống, timeout, retry một lần và local fallback.
 - Sổ chung cho 3–5 người với quyền owner/member/viewer, lời mời có hạn và menu
   theo vai trò.
-- Telegram chỉ hiển thị sáu command chính; các chức năng nâng cao nằm trong
+- Telegram chỉ hiển thị bảy command chính (gồm `/export`); các chức năng nâng cao nằm trong
   `/menu` nhưng shortcut cũ vẫn hoạt động.
 - `/deletedata` xóa sổ cá nhân và membership; `/xoaso` chỉ dành cho owner của
   sổ chung.

@@ -8,12 +8,16 @@ function escapeCsv(value) {
   return text;
 }
 
+function formatCsvAmount(value) {
+  return new Intl.NumberFormat('vi-VN').format(Number(value));
+}
+
 function transactionsToCsv(rows) {
   const header = ['Mã', 'Loại', 'Số tiền', 'Danh mục', 'Ghi chú', 'Người ghi', 'Thời gian'];
   const body = rows.map((row) => [
     row.id,
     row.transaction_type === 'expense' ? 'Chi' : 'Thu',
-    row.amount,
+    formatCsvAmount(row.amount),
     row.category,
     row.description,
     row.created_by_name,
@@ -27,9 +31,9 @@ function transactionsToCsv(rows) {
     .reduce((sum, row) => sum + Number(row.amount), 0);
   const summary = [
     ['', '', '', '', '', '', ''],
-    ['', 'Tổng thu', totalIncome, '', '', '', ''],
-    ['', 'Tổng chi', totalExpense, '', '', '', ''],
-    ['', 'Chênh lệch thu-chi', totalIncome - totalExpense, '', '', '', ''],
+    ['', 'Tổng thu', formatCsvAmount(totalIncome), '', '', '', ''],
+    ['', 'Tổng chi', formatCsvAmount(totalExpense), '', '', '', ''],
+    ['', 'Chênh lệch thu-chi', formatCsvAmount(totalIncome - totalExpense), '', '', '', ''],
   ];
 
   return `\uFEFF${[header, ...body, ...summary]
@@ -37,4 +41,4 @@ function transactionsToCsv(rows) {
     .join('\r\n')}`;
 }
 
-module.exports = { escapeCsv, transactionsToCsv };
+module.exports = { escapeCsv, formatCsvAmount, transactionsToCsv };

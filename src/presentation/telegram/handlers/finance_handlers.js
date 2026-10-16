@@ -139,9 +139,12 @@ function registerFinanceHandlers(bot, {
       getMonthlySummary(reportParams),
       getBudgetStatus(reportParams),
     ]);
+    const asOfDateParts = getCurrentDateParts(config.timezone);
     if (!rows.length) return ctx.reply(`📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
     return ctx.reply(
-      formatMonthlyReport(rows, month, year, ctx.state.ledger.name, budgetRows),
+      formatMonthlyReport(
+        rows, month, year, ctx.state.ledger.name, budgetRows, asOfDateParts,
+      ),
       monthlyReportKeyboard(ctx.state.ledger.id, month, year),
     );
   });
@@ -201,10 +204,11 @@ function registerFinanceHandlers(bot, {
       getMonthlySummary(reportParams),
       getBudgetStatus(reportParams),
     ]);
+    const asOfDateParts = getCurrentDateParts(config.timezone);
     await ctx.answerCbQuery();
     if (!rows.length) return ctx.editMessageText('📭 Không còn giao dịch trong tháng này.');
     return ctx.editMessageText(
-      formatMonthlyReport(rows, month, year, access.name, budgetRows),
+      formatMonthlyReport(rows, month, year, access.name, budgetRows, asOfDateParts),
       monthlyReportKeyboard(ledgerId, month, year),
     );
   });

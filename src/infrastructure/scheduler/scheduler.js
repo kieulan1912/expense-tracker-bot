@@ -67,7 +67,12 @@ async function runDailyJobs(telegram) {
     ]);
     if (!rows.length) continue;
     const prefix = now.day === lastDay ? '🗓 Tổng kết cuối tháng\n\n' : '🗓 Điểm lại tuần này (lũy kế tháng)\n\n';
-    await telegram.sendMessage(user.chat_id, prefix + formatMonthlyReport(rows, now.month, now.year, user.active_ledger_name, budgetRows)).catch((error) => {
+    await telegram.sendMessage(
+      user.chat_id,
+      prefix + formatMonthlyReport(
+        rows, now.month, now.year, user.active_ledger_name, budgetRows, now,
+      ),
+    ).catch((error) => {
       console.error('Không thể gửi báo cáo định kỳ:', error.message);
     });
   }

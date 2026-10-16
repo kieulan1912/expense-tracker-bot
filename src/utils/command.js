@@ -6,7 +6,21 @@ function getCommandArguments(text, command) {
   return String(text || '').replace(expression, '').trim();
 }
 
+function getTransactionExamples(command) {
+  if (command === 'thu') {
+    return {
+      primary: '/thu 15tr lương tháng 10',
+      flexible: '/thu lương tháng 10 15tr',
+    };
+  }
+  return {
+    primary: '/chi 50k phở bò',
+    flexible: '/chi phở bò 50k',
+  };
+}
+
 function parseTransactionInput(text, command) {
+  const examples = getTransactionExamples(command);
   const input = getCommandArguments(text, command);
   const parts = input.split(/\s+/).filter(Boolean);
   const candidates = [];
@@ -54,7 +68,7 @@ function parseTransactionInput(text, command) {
   );
 
   if (nonOverlapping.length > 1) {
-    throw new InputError(`Chỉ nhập một số tiền. Ví dụ: /${command} ăn xôi sáng 15k`);
+    throw new InputError(`Chỉ nhập một số tiền. Ví dụ: ${examples.flexible}`);
   }
 
   const amount = nonOverlapping[0];
@@ -63,7 +77,7 @@ function parseTransactionInput(text, command) {
     : '';
 
   if (!amount || !description) {
-    throw new InputError(`Sai cú pháp. Ví dụ: /${command} 50k phở bò hoặc /${command} phở bò 50k`);
+    throw new InputError(`Sai cú pháp. Ví dụ: ${examples.primary} hoặc ${examples.flexible}`);
   }
 
   if (description.length > 120) {

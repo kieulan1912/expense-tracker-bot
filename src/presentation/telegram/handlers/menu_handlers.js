@@ -141,9 +141,12 @@ function registerMenuHandlers(bot, {
       getMonthlySummary(reportParams),
       getBudgetStatus(reportParams),
     ]);
+    const asOfDateParts = getCurrentDateParts(config.timezone);
     if (!rows.length) return ctx.reply(`📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
     return ctx.reply(
-      formatMonthlyReport(rows, month, year, ctx.state.ledger.name, budgetRows),
+      formatMonthlyReport(
+        rows, month, year, ctx.state.ledger.name, budgetRows, asOfDateParts,
+      ),
       monthlyReportKeyboard(ctx.state.ledger.id, month, year),
     );
   });

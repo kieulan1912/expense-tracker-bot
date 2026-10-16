@@ -9,10 +9,20 @@ function summarizeRows(rows) {
   return { incomeRows, expenseRows, income, expense };
 }
 
-function formatMonthlyReport(rows, month, year, ledgerName = '', budgetRows = []) {
+function formatMonthlyReport(
+  rows,
+  month,
+  year,
+  ledgerName = '',
+  budgetRows = [],
+  asOfDateParts = null,
+) {
   const { incomeRows, expenseRows, income, expense } = summarizeRows(rows);
   const lines = [
     `📊 BÁO CÁO THÁNG ${month}/${year}`,
+    ...(asOfDateParts
+      ? [`🗓 Tính đến ngày ${asOfDateParts.day}/${asOfDateParts.month}/${asOfDateParts.year}`]
+      : []),
     ...(ledgerName ? [`📒 ${ledgerName}`] : []),
     '',
   ];
@@ -23,8 +33,8 @@ function formatMonthlyReport(rows, month, year, ledgerName = '', budgetRows = []
     lines.push('📤 KHOẢN CHI', ...expenseRows.map((row) => `• ${row.category}: ${formatMoney(row.total)}`), '');
   }
   lines.push(
-    `Tổng thu: ${formatMoney(income)}`,
-    `Tổng chi: ${formatMoney(expense)}`,
+    `Tổng thu tháng ${month}/${year}: ${formatMoney(income)}`,
+    `Tổng chi tháng ${month}/${year}: ${formatMoney(expense)}`,
     `Chênh lệch thu–chi: ${formatMoney(income - expense)}`,
   );
 

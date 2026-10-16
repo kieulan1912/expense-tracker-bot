@@ -1,4 +1,5 @@
 const { createApplication } = require('./infrastructure/composition_root');
+const { botCommands } = require('./presentation/telegram/bot_commands');
 
 const {
   config,
@@ -33,14 +34,7 @@ async function main() {
     console.log(`Health server đang chạy tại port ${config.port}`);
   });
 
-  await bot.telegram.setMyCommands([
-    { command: 'start', description: 'Bắt đầu sử dụng' },
-    { command: 'chi', description: 'Ghi một khoản chi' },
-    { command: 'thu', description: 'Ghi một khoản thu' },
-    { command: 'baocao', description: 'Xem báo cáo tháng' },
-    { command: 'lichsu', description: 'Xem N giao dịch gần nhất' },
-    { command: 'menu', description: 'Mở tất cả chức năng' },
-  ]);
+  await bot.telegram.setMyCommands(botCommands);
 
   await bot.launch({ dropPendingUpdates: true });
   stopScheduler = startScheduler(bot.telegram);

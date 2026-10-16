@@ -15,9 +15,11 @@ test('báo cáo tách chênh lệch thu chi và ngân sách còn lại', () => {
   const text = formatMonthlyReport(rows, 10, 2026, 'Gia đình', [
     { category_id: null, amount: 10_000_000, spent: 2_000_000 },
     { category_id: 1, amount: 3_000_000, spent: 2_000_000 },
-  ]);
-  assert.match(text, /Tổng thu: 10\.000\.000 VNĐ/);
-  assert.match(text, /Tổng chi: 2\.000\.000 VNĐ/);
+  ], { day: 16, month: 10, year: 2026 });
+  assert.match(text, /BÁO CÁO THÁNG 10\/2026/);
+  assert.match(text, /Tính đến ngày 16\/10\/2026/);
+  assert.match(text, /Tổng thu tháng 10\/2026: 10\.000\.000 VNĐ/);
+  assert.match(text, /Tổng chi tháng 10\/2026: 2\.000\.000 VNĐ/);
   assert.match(text, /Chênh lệch thu–chi: 8\.000\.000 VNĐ/);
   assert.match(text, /Ngân sách tháng: 10\.000\.000 VNĐ/);
   assert.match(text, /Ngân sách còn lại: 8\.000\.000 VNĐ/);

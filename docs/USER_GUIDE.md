@@ -5,7 +5,7 @@
 
 ## 1. Nguyên tắc giao diện
 
-Người dùng không cần nhớ toàn bộ command. Telegram chỉ hiển thị sáu lệnh chính:
+Người dùng không cần nhớ toàn bộ command. Telegram chỉ hiển thị bảy lệnh chính:
 
 ```text
 /start   Bắt đầu hoặc xem tổng quan
@@ -13,6 +13,7 @@ Người dùng không cần nhớ toàn bộ command. Telegram chỉ hiển th�
 /thu     Ghi khoản thu
 /baocao  Xem báo cáo tháng
 /lichsu  Xem giao dịch gần nhất
+/export  Xuất file CSV theo tháng
 /menu    Mở tất cả chức năng
 ```
 
@@ -226,6 +227,8 @@ Hãy liên hệ chủ sổ nếu bạn cần quyền Thành viên.
 /baocao 09/2026
 /lichsu
 /lichsu 3
+/export
+/export 09/2026
 ```
 
 Báo cáo của sổ chung bao gồm dữ liệu của tất cả thành viên. Lịch sử hiển thị
@@ -242,8 +245,8 @@ tháng năm và giờ, danh mục, ghi chú, người ghi. Dùng **Trang trướ
 **Trang sau** để chuyển trang; bấm **📊 Xem tổng quan** để quay lại báo cáo
 tổng. Bot kiểm tra lại quyền truy cập sổ ở mỗi lần bấm nút.
 
-File CSV có ba dòng tổng hợp cuối file: tổng thu, tổng chi và chênh lệch
-thu–chi.
+File CSV định dạng số tiền theo hàng nghìn (`1.250.000`) và có ba dòng tổng
+hợp cuối file: tổng thu, tổng chi và chênh lệch thu–chi.
 
 ## 11. Rời hoặc xóa sổ
 
@@ -278,13 +281,13 @@ dùng còn sở hữu sổ chung, bot yêu cầu xử lý các sổ đó trướ
 Các lệnh chính được hiển thị:
 
 ```text
-/start /chi /thu /baocao /lichsu /menu
+/start /chi /thu /baocao /lichsu /export /menu
 ```
 
 Các shortcut ẩn nhưng vẫn hỗ trợ:
 
 ```text
-/bieudo /export /xoa
+/bieudo /xoa
 /ngansach /no /dinhky /nhacnho
 /taoso /moi /thamgia /danhsachso /chonso
 /thanhvien /phanquyen /xoathanhvien /roiso /xoaso

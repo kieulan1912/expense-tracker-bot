@@ -51,3 +51,31 @@ test('giao dịch từ chối nhiều số tiền rõ ràng hoặc thiếu ghi c
   );
   assert.throws(() => parseTransactionInput('/chi 50k', 'chi'), InputError);
 });
+
+test('lỗi cú pháp dùng ví dụ phù hợp với lệnh thu và chi', () => {
+  assert.throws(
+    () => parseTransactionInput('/thu 15tr', 'thu'),
+    (error) =>
+      error instanceof InputError
+      && error.message.includes('/thu 15tr lương tháng 10')
+      && error.message.includes('/thu lương tháng 10 15tr')
+      && !error.message.includes('phở'),
+  );
+  assert.throws(
+    () => parseTransactionInput('/chi 50k', 'chi'),
+    (error) =>
+      error instanceof InputError
+      && error.message.includes('/chi 50k phở bò')
+      && error.message.includes('/chi phở bò 50k'),
+  );
+});
+
+test('lỗi nhiều số tiền của lệnh thu không dùng ví dụ khoản chi', () => {
+  assert.throws(
+    () => parseTransactionInput('/thu lương 10tr thưởng 2tr', 'thu'),
+    (error) =>
+      error instanceof InputError
+      && error.message.includes('/thu lương tháng 10 15tr')
+      && !error.message.includes('xôi'),
+  );
+});

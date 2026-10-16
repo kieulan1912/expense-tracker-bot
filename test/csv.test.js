@@ -24,7 +24,9 @@ test('CSV có tổng thu, tổng chi và chênh lệch ở cuối file', () => {
     },
   ]);
 
-  assert.match(csv, /,Tổng thu,5000000,/);
-  assert.match(csv, /,Tổng chi,1250000,/);
-  assert.match(csv, /,Chênh lệch thu-chi,3750000,/);
+  assert.match(csv, /,Thu,5\.000\.000,/);
+  assert.match(csv, /,Chi,1\.250\.000,/);
+  assert.match(csv, /,Tổng thu,5\.000\.000,/);
+  assert.match(csv, /,Tổng chi,1\.250\.000,/);
+  assert.match(csv, /,Chênh lệch thu-chi,3\.750\.000,/);
 });

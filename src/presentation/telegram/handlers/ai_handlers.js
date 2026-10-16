@@ -2,7 +2,7 @@ const { Markup } = require('telegraf');
 const { InputError } = require('../../../domain/errors');
 const { formatMoney } = require('../../../utils/amount');
 const { getCategoryName } = require('../../../utils/category');
-const { getCurrentMonth } = require('../../../utils/month');
+const { getCurrentMonth, getCurrentDateParts } = require('../../../utils/month');
 const { resolveImageMime, looksLikeSupportedImage } = require('../../../utils/image');
 const { formatMonthlyReport } = require('../../../domain/services/report_service');
 const { requireWritableLedger } = require('../context');
@@ -46,9 +46,12 @@ async function saveAiResult(ctx, result, source, dependencies) {
       getMonthlySummary(reportParams),
       finance.getBudgetStatus(reportParams),
     ]);
+    const asOfDateParts = getCurrentDateParts(config.timezone);
     if (!rows.length) return ctx.reply(`📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
     return ctx.reply(
-      formatMonthlyReport(rows, month, year, ctx.state.ledger.name, budgetRows),
+      formatMonthlyReport(
+        rows, month, year, ctx.state.ledger.name, budgetRows, asOfDateParts,
+      ),
       monthlyReportKeyboard(ctx.state.ledger.id, month, year),
     );
   }
