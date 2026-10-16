@@ -22,7 +22,7 @@ const helpMessage = [
   '/no vay Lan 1tr | tiền nhà', '/no tra ID 100k', '',
   'Tự động:',
   '/dinhky — danh sách', '/dinhky them chi 200k Internet | 5',
-  '/dinhky xoa ID · /nhacnho on|off', '',
+  '/dinhky xoa ID · /nhacnho on|off (mặc định bật)', '',
   'Cài đặt:',
   '/phongcach nhe|haihuoc|thang',
   '/ocr on|off — bật/tắt đọc ảnh hóa đơn',

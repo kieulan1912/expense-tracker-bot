@@ -98,11 +98,16 @@ function createDatabase(config) {
       personality VARCHAR(20) NOT NULL DEFAULT 'funny'
         CHECK (personality IN ('gentle', 'funny', 'direct')),
       ocr_consent BOOLEAN NOT NULL DEFAULT FALSE,
-      reminders_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      reminders_enabled BOOLEAN NOT NULL DEFAULT TRUE,
       plan VARCHAR(12) NOT NULL DEFAULT 'free',
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE user_preferences
+      ALTER COLUMN reminders_enabled SET DEFAULT TRUE
   `);
 
   await pool.query(`
@@ -392,6 +397,24 @@ function createDatabase(config) {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_recurring_ledger_active
     ON recurring_transactions (ledger_id, active, day_of_month)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_migrations (
+      migration_key VARCHAR(120) PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    WITH applied AS (
+      INSERT INTO app_migrations (migration_key)
+      VALUES ('20261016_enable_reminders_by_default')
+      ON CONFLICT (migration_key) DO NOTHING
+      RETURNING migration_key
+    )
+    UPDATE user_preferences
+    SET reminders_enabled = TRUE, updated_at = CURRENT_TIMESTAMP
+    WHERE EXISTS (SELECT 1 FROM applied)
   `);
 
     await pool.query('SELECT NOW()');

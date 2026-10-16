@@ -118,6 +118,48 @@ async function getMonthlyTransactions({ ledgerId, month, year, timezone }) {
   return result.rows.map(mapTransaction);
 }
 
+async function getDailySummary({ ledgerId, date, timezone }) {
+  const result = await pool.query(
+    `WITH normalized AS (
+       SELECT transaction_type, amount, category,
+         CASE
+           WHEN category_id <> 99 THEN category_id
+           WHEN transaction_type = 'expense' AND category = 'Ăn uống' THEN 1
+           WHEN transaction_type = 'expense' AND category = 'Di chuyển' THEN 2
+           WHEN transaction_type = 'expense'
+             AND category IN ('Hóa đơn', 'Hóa đơn & sinh hoạt') THEN 3
+           WHEN transaction_type = 'expense'
+             AND category IN ('Mua sắm', 'Giải trí', 'Mua sắm & giải trí') THEN 4
+           WHEN transaction_type = 'expense' AND category = 'Sức khỏe' THEN 5
+           WHEN transaction_type = 'expense'
+             AND category IN ('Giáo dục', 'Giáo dục & phát triển') THEN 6
+           WHEN transaction_type = 'expense'
+             AND category = 'Cho tặng & gia đình' THEN 7
+           WHEN transaction_type = 'income' AND category = 'Lương' THEN 91
+           WHEN transaction_type = 'income' AND category = 'Thưởng' THEN 92
+           WHEN transaction_type = 'income' AND category = 'Đầu tư' THEN 93
+           WHEN transaction_type = 'income' AND category = 'Kinh doanh' THEN 94
+           ELSE 99
+         END AS normalized_category_id
+       FROM financial_transactions
+       WHERE ledger_id = $1
+         AND (occurred_at AT TIME ZONE $3)::DATE = $2::DATE
+     )
+     SELECT transaction_type, normalized_category_id AS category_id,
+            MAX(category) AS legacy_category, SUM(amount)::BIGINT AS total
+     FROM normalized
+     GROUP BY transaction_type, normalized_category_id
+     ORDER BY transaction_type, total DESC`,
+    [ledgerId, date, timezone],
+  );
+  return result.rows.map((row) => ({
+    ...row,
+    category: Number(row.category_id) === 99 && row.legacy_category !== 'Khác'
+      ? row.legacy_category
+      : getCategoryName(row.category_id, row.transaction_type),
+  }));
+}
+
 async function getRecentTransactions({ ledgerId, limit, timezone }) {
   const result = await pool.query(
     `SELECT t.id, t.transaction_type, t.amount, t.category, t.category_id,
@@ -195,6 +237,7 @@ async function deleteAllUserData(userId) {
   createTransactions,
   getMonthlySummary,
   getMonthlyTransactions,
+  getDailySummary,
   getRecentTransactions,
   deleteTransaction,
   getSpendingBetween,

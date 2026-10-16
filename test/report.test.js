@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   formatMonthlyReport,
+  formatDailyReport,
+  selectDailyReminder,
   createChartUrl,
   formatBudgetStatus,
 } = require('../src/domain/services/report_service');
@@ -54,4 +56,25 @@ test('ngân sách dùng số ngày còn lại', () => {
     { year: 2026, month: 10, day: 1 },
   );
   assert.match(text, /100\.000 VNĐ\/ngày/);
+});
+
+test('tổng kết hằng ngày hiển thị thu chi và lời nhắc', () => {
+  const dateParts = { year: 2026, month: 10, day: 16 };
+  const reminder = selectDailyReminder('funny', dateParts, 12345, true);
+  const text = formatDailyReport(rows, dateParts, 'Gia đình', reminder);
+
+  assert.match(text, /TỔNG KẾT HÔM NAY · 16\/10\/2026/);
+  assert.match(text, /Tổng thu hôm nay: 10\.000\.000 VNĐ/);
+  assert.match(text, /Tổng chi hôm nay: 2\.000\.000 VNĐ/);
+  assert.match(text, /💬 /);
+  assert.match(text, /Ghi nhanh: \/chi ăn tối 50k/);
+});
+
+test('ngày chưa có dữ liệu vẫn nhắc user kiểm tra giao dịch', () => {
+  const dateParts = { year: 2026, month: 10, day: 16 };
+  const reminder = selectDailyReminder('funny', dateParts, 12345, false);
+  const text = formatDailyReport([], dateParts, 'Sổ cá nhân', reminder);
+
+  assert.match(text, /Chưa có giao dịch nào được ghi trong ngày/);
+  assert.match(text, /💬 /);
 });

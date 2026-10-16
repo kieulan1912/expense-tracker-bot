@@ -3,6 +3,7 @@ const transactionRepositoryMethods = Object.freeze([
   'createTransactions',
   'getMonthlySummary',
   'getMonthlyTransactions',
+  'getDailySummary',
   'getRecentTransactions',
   'deleteTransaction',
   'getSpendingBetween',

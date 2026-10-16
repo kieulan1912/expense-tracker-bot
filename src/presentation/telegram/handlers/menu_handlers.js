@@ -37,7 +37,9 @@ function registerMenuHandlers(bot, {
     const input = getCommandArguments(ctx.message.text, 'nhacnho').toLowerCase();
     if (!['on', 'off'].includes(input)) throw new InputError('Dùng /nhacnho on hoặc /nhacnho off.');
     await updatePreference(ctx.from.id, 'reminders_enabled', input === 'on');
-    return ctx.reply(input === 'on' ? '🔔 Đã bật báo cáo tự động lúc 20:00.' : '🔕 Đã tắt báo cáo tự động.');
+    return ctx.reply(input === 'on'
+      ? '🔔 Đã bật tổng kết hằng ngày và báo cáo định kỳ lúc 20:00.'
+      : '🔕 Đã tắt tổng kết hằng ngày và báo cáo định kỳ.');
   });
   bot.command('phongcach', async (ctx) => {
     const input = getCommandArguments(ctx.message.text, 'phongcach').toLowerCase();
@@ -183,7 +185,7 @@ function registerMenuHandlers(bot, {
   });
   bot.action('plan:reminders', async (ctx) => {
     await ctx.answerCbQuery();
-    return ctx.reply('Dùng /nhacnho on hoặc /nhacnho off.');
+    return ctx.reply('Mặc định đang bật: tổng kết mỗi ngày lúc 20:00 và báo cáo định kỳ. Dùng /nhacnho on hoặc /nhacnho off.');
   });
   bot.action('settings:ocr', async (ctx) => {
     await ctx.answerCbQuery();

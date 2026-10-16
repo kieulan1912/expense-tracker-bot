@@ -1,5 +1,9 @@
 const { Markup } = require('telegraf');
-const { formatMonthlyReport } = require('../../domain/services/report_service');
+const {
+  formatMonthlyReport,
+  formatDailyReport,
+  selectDailyReminder,
+} = require('../../domain/services/report_service');
 const { formatMoney } = require('../../utils/amount');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -13,7 +17,7 @@ function createScheduler({ config, finance, users, transactions }) {
     getBudgetStatus,
   } = finance;
   const { getReminderUsers } = users;
-  const { getMonthlySummary } = transactions;
+  const { getMonthlySummary, getDailySummary } = transactions;
 
 function localDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -24,8 +28,8 @@ function localDateParts(date = new Date()) {
   return { year: Number(values.year), month: Number(values.month), day: Number(values.day), weekday: values.weekday };
 }
 
-async function runDailyJobs(telegram) {
-  const now = localDateParts();
+async function runDailyJobs(telegram, date = new Date()) {
+  const now = localDateParts(date);
   const isoDate = `${now.year}-${String(now.month).padStart(2, '0')}-${String(now.day).padStart(2, '0')}`;
   const recurring = await getDueRecurring(now.day, isoDate);
   for (const item of recurring) {
@@ -55,9 +59,31 @@ async function runDailyJobs(telegram) {
     });
   }
 
+  const users = await getReminderUsers();
+  for (const user of users) {
+    if (!user.active_ledger_id) continue;
+    const timezone = user.timezone || config.timezone;
+    const rows = await getDailySummary({
+      ledgerId: user.active_ledger_id,
+      date: isoDate,
+      timezone,
+    });
+    const reminder = selectDailyReminder(
+      user.personality,
+      now,
+      user.telegram_user_id,
+      rows.length > 0,
+    );
+    await telegram.sendMessage(
+      user.chat_id,
+      formatDailyReport(rows, now, user.active_ledger_name, reminder),
+    ).catch((error) => {
+      console.error('Không thể gửi báo cáo hằng ngày:', error.message);
+    });
+  }
+
   const lastDay = new Date(now.year, now.month, 0).getDate();
   if (now.weekday !== 'Sun' && now.day !== lastDay) return;
-  const users = await getReminderUsers();
   for (const user of users) {
     if (!user.active_ledger_id) continue;
     const reportParams = { ledgerId: user.active_ledger_id, month: now.month, year: now.year, timezone: user.timezone };

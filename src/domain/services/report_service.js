@@ -57,6 +57,76 @@ function formatMonthlyReport(
   return lines.join('\n');
 }
 
+const dailyReminderTemplates = Object.freeze({
+  funny: {
+    empty: [
+      'Sổ hôm nay đang im thin thít. Bạn đã note hết chi tiêu chưa đó? 😄',
+      '20:00 rồi, ví đã tan ca nhưng sổ chưa chắc. Có khoản nào quên ghi không? 🕵️',
+      'Điểm danh cuối ngày: cơm, cà phê, xăng xe… có ai chưa lên sổ không? 😄',
+    ],
+    recorded: [
+      'Sổ đã có dữ liệu rồi. Kiểm tra xem còn khoản nào đang “trốn” chưa nhé 😄',
+      'Hôm nay bot đã ghi sổ chăm chỉ. Bạn rà lại một vòng để khỏi sót nhé 🧾',
+      'Ví đã kể chuyện hôm nay rồi, nhưng biết đâu vẫn còn một chương chưa note 😄',
+    ],
+  },
+  gentle: {
+    empty: ['Bạn dành một phút kiểm tra xem hôm nay còn khoản nào chưa ghi nhé.'],
+    recorded: ['Bạn kiểm tra lại các khoản hôm nay để sổ được đầy đủ nhé.'],
+  },
+  direct: {
+    empty: ['Chưa có giao dịch hôm nay. Hãy ghi lại các khoản còn thiếu.'],
+    recorded: ['Hãy đối chiếu và bổ sung ngay các giao dịch còn thiếu trong ngày.'],
+  },
+});
+
+function selectDailyReminder(personality, dateParts, seed, hasTransactions) {
+  const style = dailyReminderTemplates[personality] || dailyReminderTemplates.funny;
+  const templates = hasTransactions ? style.recorded : style.empty;
+  const seedValue = [...String(seed || '')]
+    .reduce((total, character) => total + character.charCodeAt(0), 0);
+  const index = (dateParts.year * 372 + dateParts.month * 31 + dateParts.day + seedValue)
+    % templates.length;
+  return templates[index];
+}
+
+function formatDailyReport(rows, dateParts, ledgerName = '', reminder = '') {
+  const { incomeRows, expenseRows, income, expense } = summarizeRows(rows);
+  const date = `${dateParts.day}/${dateParts.month}/${dateParts.year}`;
+  const lines = [
+    `🌙 TỔNG KẾT HÔM NAY · ${date}`,
+    ...(ledgerName ? [`📒 ${ledgerName}`] : []),
+    '',
+  ];
+
+  if (!rows.length) {
+    lines.push('📭 Chưa có giao dịch nào được ghi trong ngày.');
+  } else {
+    if (incomeRows.length) {
+      lines.push(
+        '📥 KHOẢN THU',
+        ...incomeRows.map((row) => `• ${row.category}: ${formatMoney(row.total)}`),
+        '',
+      );
+    }
+    if (expenseRows.length) {
+      lines.push(
+        '📤 KHOẢN CHI',
+        ...expenseRows.map((row) => `• ${row.category}: ${formatMoney(row.total)}`),
+        '',
+      );
+    }
+    lines.push(
+      `Tổng thu hôm nay: ${formatMoney(income)}`,
+      `Tổng chi hôm nay: ${formatMoney(expense)}`,
+    );
+  }
+
+  if (reminder) lines.push('', `💬 ${reminder}`);
+  lines.push('', 'Ghi nhanh: /chi ăn tối 50k');
+  return lines.join('\n');
+}
+
 function createChartUrl(rows, month, year) {
   const expenseRows = rows.filter((row) => row.transaction_type === 'expense');
   if (!expenseRows.length) return null;
@@ -87,4 +157,11 @@ function formatBudgetStatus(rows, dateParts) {
   return lines.join('\n');
 }
 
-module.exports = { summarizeRows, formatMonthlyReport, createChartUrl, formatBudgetStatus };
+module.exports = {
+  summarizeRows,
+  formatMonthlyReport,
+  formatDailyReport,
+  selectDailyReminder,
+  createChartUrl,
+  formatBudgetStatus,
+};

@@ -49,7 +49,8 @@ domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ w
 - Cảnh báo khoản chi bất thường dựa trên trung bình 30 ngày.
 - Theo dõi cho vay, đi vay, thanh toán từng phần và hạn trả.
 - Giao dịch định kỳ: bot nhắc và chỉ ghi khi người dùng xác nhận.
-- Báo cáo tự động Chủ nhật/cuối tháng lúc 20:00 khi bật `/nhacnho on`.
+- Nhắc tự động mặc định bật: tổng kết thu chi mỗi ngày lúc 20:00, kèm lời nhắc
+  local thay đổi theo ngày; Chủ nhật/cuối tháng có thêm báo cáo lũy kế.
 - OCR hóa đơn JPEG, PNG, WebP, HEIC/HEIF có consent, không lưu ảnh.
 - Biểu đồ QuickChart là tùy chọn qua `/bieudo`.
 - Ba phong cách; mặc định hài hước nhưng không trêu chọc các khoản nhạy cảm.

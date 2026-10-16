@@ -47,6 +47,12 @@ Gia đình Lân & Thu · Vai trò: Thành viên
 [Công nợ]   [Nhắc nhở]
 ```
 
+Nhắc nhở được bật mặc định. Lúc 20:00 mỗi ngày, bot gửi tổng thu/chi trong ngày
+của sổ đang chọn và một câu nhắc thay đổi theo ngày để kiểm tra giao dịch còn
+thiếu. Chủ nhật và ngày cuối tháng có thêm báo cáo lũy kế. Các câu nhắc được
+chọn local nên không dùng Gemini và không tốn AI quota. Dùng `/nhacnho off` để
+tắt toàn bộ thông báo tự động; `/nhacnho on` để bật lại.
+
 ### Sổ chung
 
 ```text
