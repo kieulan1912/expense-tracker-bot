@@ -70,8 +70,15 @@ member không thấy nút mời, đổi quyền hoặc xóa sổ.
 
 ```text
 /chi 50k ăn phở
+/chi 15k ăn xôi sáng
 /thu 20tr lương tháng 10
 ```
+
+Với `/chi` và `/thu`, bot phân loại ngay trên server bằng bảng từ khóa local.
+Bot không gọi Gemini cho các lệnh này nên không tốn AI quota. Nội dung có hoặc
+không có dấu đều được chuẩn hóa trước khi so khớp; ví dụ `ăn xôi sáng` và
+`AN XOI SANG` đều được xếp vào **Ăn uống**. Nếu không có từ khóa phù hợp, bot
+dùng danh mục **Khác**.
 
 ### Dùng câu tự nhiên
 
