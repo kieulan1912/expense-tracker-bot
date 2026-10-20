@@ -36,9 +36,10 @@ async function main() {
 
   await bot.telegram.setMyCommands(botCommands);
 
-  await bot.launch({ dropPendingUpdates: true });
-  stopScheduler = startScheduler(bot.telegram);
-  console.log('Telegram bot đã khởi động');
+  await bot.launch({ dropPendingUpdates: true }, () => {
+    stopScheduler = startScheduler(bot.telegram);
+    console.log('Telegram bot đã khởi động');
+  });
 }
 
 process.once('SIGINT', async () => {

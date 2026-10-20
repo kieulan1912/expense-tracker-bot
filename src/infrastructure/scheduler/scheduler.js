@@ -114,13 +114,26 @@ function msUntilNextRun() {
 }
 
 function startScheduler(telegram) {
-  if (!config.schedulerEnabled) return () => {};
+  if (!config.schedulerEnabled) {
+    console.log('Scheduler đang tắt qua biến SCHEDULER_ENABLED');
+    return () => {};
+  }
+
   let interval;
+  const delay = msUntilNextRun();
+  const nextRun = new Intl.DateTimeFormat('vi-VN', {
+    timeZone: config.timezone,
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  }).format(new Date(Date.now() + delay));
+
   const timeout = setTimeout(() => {
     runDailyJobs(telegram).catch((error) => console.error('Scheduler error:', error));
     interval = setInterval(() => runDailyJobs(telegram).catch((error) => console.error('Scheduler error:', error)), DAY_MS);
-  }, msUntilNextRun());
+  }, delay);
   timeout.unref();
+  console.log(`Scheduler đã bật; lần chạy kế tiếp: ${nextRun} (${config.timezone})`);
+
   return () => { clearTimeout(timeout); if (interval) clearInterval(interval); };
 }
 
