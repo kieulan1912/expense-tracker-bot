@@ -26,12 +26,13 @@ function createBot({ config, useCases, pendingStore, bot: providedBot = null }) 
     ledgers: useCases.ledgers,
     notifyUser,
   });
-  registerFinanceHandlers(bot, {
+  const handleFinanceTextInput = registerFinanceHandlers(bot, {
     config,
     transactions: useCases.transactions,
     finance: useCases.finance,
     ledgers: useCases.ledgers,
     users: useCases.users,
+    pendingStore,
     getBudgetWarning,
   });
   registerMenuHandlers(bot, {
@@ -52,6 +53,7 @@ function createBot({ config, useCases, pendingStore, bot: providedBot = null }) 
     pendingStore,
     getBudgetWarning,
     handleLedgerTextInput,
+    handleFinanceTextInput,
   });
 
   bot.catch(async (error, ctx) => {

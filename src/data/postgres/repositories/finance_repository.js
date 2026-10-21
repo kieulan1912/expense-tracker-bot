@@ -1,3 +1,5 @@
+const { normalizeForCategory } = require('../../../utils/category');
+
 function createFinanceRepository(pool) {
 
 async function upsertBudget({ userId, ledgerId, categoryId, amount, month, year }) {
@@ -37,6 +39,7 @@ async function getBudgetStatus({ ledgerId, month, year, timezone }) {
      LEFT JOIN financial_transactions t
        ON t.ledger_id = b.ledger_id
       AND t.transaction_type = 'expense'
+      AND t.status = 'active'
       AND EXTRACT(MONTH FROM t.occurred_at AT TIME ZONE $4) = b.month
       AND EXTRACT(YEAR FROM t.occurred_at AT TIME ZONE $4) = b.year
       AND (b.category_id IS NULL OR t.category_id = b.category_id)
@@ -50,14 +53,14 @@ async function getBudgetStatus({ ledgerId, month, year, timezone }) {
 async function createDebt({ userId, ledgerId, personName, debtType, amount, description = '', dueDate = null }) {
   const result = await pool.query(
     `INSERT INTO debts (telegram_user_id, ledger_id, person_name, debt_type,
-       original_amount, remaining_amount, description, due_date)
-     VALUES ($1, $2, $3, $4, $5, $5, $6, $7) RETURNING *`,
+       original_amount, remaining_amount, description, due_date, created_by_user_id)
+     VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $1) RETURNING *`,
     [userId, ledgerId, personName, debtType, amount, description, dueDate],
   );
   return result.rows[0];
 }
 
-async function payDebt({ userId, ledgerId, debtId, amount }) {
+async function payDebt({ userId, ledgerId, debtId, amount, sourceKey = null }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -76,12 +79,23 @@ async function payDebt({ userId, ledgerId, debtId, amount }) {
       await client.query('ROLLBACK');
       return null;
     }
-    const payment = Math.min(amount, Number(debt.remaining_amount));
+    if (amount > Number(debt.remaining_amount)) {
+      await client.query('ROLLBACK');
+      return { error: 'overpayment', remainingAmount: Number(debt.remaining_amount), debt };
+    }
+    const payment = amount;
     const remaining = Number(debt.remaining_amount) - payment;
-    await client.query(
-      'INSERT INTO debt_payments (debt_id, amount) VALUES ($1, $2)',
-      [debtId, payment],
+    const paymentResult = await client.query(
+      `INSERT INTO debt_payments (debt_id, amount, created_by_user_id, source_key)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (debt_id, source_key) WHERE source_key IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [debtId, payment, userId, sourceKey],
     );
+    if (!paymentResult.rows[0]) {
+      await client.query('ROLLBACK');
+      return { error: 'duplicate', debt };
+    }
     const result = await client.query(
       `UPDATE debts SET remaining_amount = $2,
        status = CASE WHEN $2 = 0 THEN 'paid' ELSE 'open' END,
@@ -105,6 +119,66 @@ async function getOpenDebts(ledgerId) {
     [ledgerId],
   );
   return result.rows;
+}
+
+async function getDebtById({ ledgerId, debtId }) {
+  const result = await pool.query(
+    `SELECT * FROM debts WHERE id = $1 AND ledger_id = $2`,
+    [debtId, ledgerId],
+  );
+  return result.rows[0] || null;
+}
+
+async function getDebtDetails({ ledgerId, debtId, timezone }) {
+  const [debtResult, paymentsResult] = await Promise.all([
+    pool.query(
+      `SELECT * FROM debts WHERE id = $1 AND ledger_id = $2`,
+      [debtId, ledgerId],
+    ),
+    pool.query(
+      `SELECT p.amount,
+         TO_CHAR(p.created_at AT TIME ZONE $3, 'DD/MM/YYYY HH24:MI') AS paid_at,
+         COALESCE(u.display_name, u.username, p.created_by_user_id::TEXT) AS created_by_name
+       FROM debt_payments p
+       JOIN debts d ON d.id = p.debt_id
+       LEFT JOIN user_preferences u ON u.telegram_user_id = p.created_by_user_id
+       WHERE p.debt_id = $1 AND d.ledger_id = $2
+       ORDER BY p.created_at DESC`,
+      [debtId, ledgerId, timezone],
+    ),
+  ]);
+  if (!debtResult.rows[0]) return null;
+  return { ...debtResult.rows[0], payments: paymentsResult.rows };
+}
+
+async function findOpenDebts({ ledgerId, personName = '' }) {
+  const result = await pool.query(
+    `SELECT * FROM debts
+     WHERE ledger_id = $1 AND status = 'open'
+     ORDER BY due_date NULLS LAST, created_at DESC`,
+    [ledgerId],
+  );
+  const target = normalizeForCategory(personName);
+  return target
+    ? result.rows.filter((row) => normalizeForCategory(row.person_name).includes(target))
+    : result.rows;
+}
+
+async function cancelDebt({ userId, ledgerId, debtId, reason = '' }) {
+  const result = await pool.query(
+    `UPDATE debts d SET status = 'cancelled', cancelled_by_user_id = $3,
+       cancelled_at = CURRENT_TIMESTAMP, cancellation_reason = $4,
+       updated_at = CURRENT_TIMESTAMP
+     WHERE d.id = $1 AND d.ledger_id = $2 AND d.status = 'open'
+       AND EXISTS (
+         SELECT 1 FROM ledger_members m
+         WHERE m.ledger_id = d.ledger_id AND m.telegram_user_id = $3
+           AND (m.role = 'owner' OR d.created_by_user_id = $3)
+       )
+     RETURNING d.*`,
+    [debtId, ledgerId, userId, reason.slice(0, 160)],
+  );
+  return result.rows[0] || null;
 }
 
 async function createRecurring({ userId, ledgerId, type, amount, categoryId, description, dayOfMonth }) {
@@ -165,6 +239,7 @@ async function getExpenseStats(ledgerId) {
        COALESCE(AVG(amount), 0)::BIGINT AS average
      FROM financial_transactions
      WHERE ledger_id = $1 AND transaction_type = 'expense'
+       AND status = 'active'
        AND occurred_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'`,
     [ledgerId],
   );
@@ -217,6 +292,10 @@ async function getRecurringById({ userId, recurringId }) {
   createDebt,
   payDebt,
   getOpenDebts,
+  getDebtById,
+  getDebtDetails,
+  findOpenDebts,
+  cancelDebt,
   createRecurring,
   getRecurring,
   deleteRecurring,

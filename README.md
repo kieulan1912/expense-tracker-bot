@@ -36,18 +36,26 @@ domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ w
 
 - `/chi 50k phở bò`, `/chi phở bò 50k`, `/thu lương 15tr`; số tiền có thể
   nằm ở đầu, giữa hoặc cuối nội dung.
+- Tách khoản nhiều người: `/chi biếu bà và mẹ mỗi người 500k` hoặc
+  `/chi biếu bà 500k; biếu mẹ 500k`; bot xem trước từng khoản rồi mới lưu.
 - Lệnh trực tiếp được phân loại bằng bảng từ khóa local có chuẩn hóa dấu tiếng
   Việt; không dùng Gemini và không tiêu tốn AI quota.
 - Nhắn tự nhiên, tách nhiều giao dịch, hiểu ngày tương đối bằng Gemini.
 - Xác nhận giao dịch OCR, dữ liệu mơ hồ hoặc khoản tiền lớn.
-- Undo, lịch sử tùy số lượng (`/lichsu 3`), xóa, báo cáo tháng và xuất CSV.
+- Undo, lịch sử tùy số lượng (`/lichsu 3`), điều chỉnh/hủy có xác nhận, báo cáo
+  tháng và xuất CSV. Giao dịch hủy được giữ audit nhưng không còn tính báo cáo.
+- Tìm kiếm giao dịch bằng `/tim` với từ khóa, loại thu/chi, danh mục, khoảng
+  tiền, ngày/tháng và người ghi; các điều kiện được kết hợp theo AND. Câu tự
+  nhiên được Gemini chuyển thành cùng bộ lọc nhưng dữ liệu giao dịch vẫn chỉ
+  được truy vấn trong PostgreSQL.
 - Báo cáo tháng có nút xem chi tiết trực tiếp trong Telegram, phân trang 8 giao
   dịch và hiển thị người ghi cho sổ chung.
 - Báo cáo phân biệt chênh lệch thu–chi với ngân sách còn lại; CSV định dạng số
   tiền theo hàng nghìn và có tổng thu, tổng chi, chênh lệch ở cuối file.
 - Ngân sách tổng/theo danh mục, hạn mức theo số ngày còn lại, cảnh báo 80%.
 - Cảnh báo khoản chi bất thường dựa trên trung bình 30 ngày.
-- Theo dõi cho vay, đi vay, thanh toán từng phần và hạn trả.
+- Công nợ phải thu/phải trả có nút trả một phần, tất toán và hủy; mọi thanh toán
+  đều xác nhận, lưu lịch sử riêng và không bị tính nhầm thành thu nhập/chi tiêu.
 - Giao dịch định kỳ: bot nhắc và chỉ ghi khi người dùng xác nhận.
 - Nhắc tự động mặc định bật: tổng kết thu chi mỗi ngày lúc 20:00, kèm lời nhắc
   local thay đổi theo ngày; Chủ nhật/cuối tháng có thêm báo cáo lũy kế.
@@ -57,7 +65,7 @@ domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ w
 - Quota AI theo user/toàn hệ thống, timeout, retry một lần và local fallback.
 - Sổ chung cho 3–5 người với quyền owner/member/viewer, lời mời có hạn và menu
   theo vai trò.
-- Telegram chỉ hiển thị bảy command chính (gồm `/export`); các chức năng nâng cao nằm trong
+- Telegram chỉ hiển thị tám command chính (gồm `/tim` và `/export`); các chức năng nâng cao nằm trong
   `/menu` nhưng shortcut cũ vẫn hoạt động.
 - `/deletedata` xóa sổ cá nhân và membership; `/xoaso` chỉ dành cho owner của
   sổ chung.
@@ -93,9 +101,9 @@ ALLOWED_USER_IDS=
 GEMINI_MODEL=gemini-3.5-flash-lite
 GEMINI_FALLBACK_MODELS=gemini-3.8-flash
 AI_ENABLED=true
-AI_TEXT_DAILY_LIMIT_PER_USER=30
-AI_IMAGE_DAILY_LIMIT_PER_USER=5
-AI_GLOBAL_DAILY_LIMIT=200
+AI_TEXT_DAILY_LIMIT_PER_USER=150
+AI_IMAGE_DAILY_LIMIT_PER_USER=10
+AI_GLOBAL_DAILY_LIMIT=300
 OCR_MAX_IMAGE_MB=10
 CONFIRMATION_THRESHOLD_VND=1000000
 BOT_RATE_LIMIT_PER_MINUTE=30
@@ -108,6 +116,12 @@ membership sổ chung cho phép họ sử dụng bot mà không cần sửa bi�
 
 Không commit `.env`, bot token, API key hoặc database URL. `GEMINI_API_KEY`
 chỉ được dùng ở runtime và không được ghi ra log.
+
+Quota trên được đề xuất cho hai người dùng: mỗi người tối đa 150 lượt text,
+10 lượt ảnh và toàn bot tối đa 300 lượt/ngày. `/chi`, `/thu`, `/tim`, báo cáo
+và các lệnh rõ ràng chạy local nên không tiêu lượt AI. Giới hạn thực tế của
+Gemini phụ thuộc project/tier; kiểm tra trang Rate limits trong Google AI Studio
+trước khi tăng tiếp.
 
 ## Deploy Northflank
 
@@ -136,6 +150,7 @@ Build arguments. Sau khi thay đổi biến, restart/redeploy service.
 ```text
 Kết nối PostgreSQL thành công
 Health server đang chạy tại port 3000
+Scheduler đã bật; lần chạy kế tiếp: ... (Asia/Ho_Chi_Minh)
 Telegram bot đã khởi động
 ```
 

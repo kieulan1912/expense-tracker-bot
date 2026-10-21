@@ -1,7 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { InputError } = require('../src/domain/errors');
-const { parseTransactionInput } = require('../src/utils/command');
+const {
+  parseTransactionInput,
+  parseMultipleExpenseInput,
+} = require('../src/utils/command');
 
 test('giao dịch nhận số tiền ở đầu, cuối hoặc giữa nội dung', () => {
   assert.deepEqual(parseTransactionInput('/chi 15k ăn xôi sáng', 'chi'), {
@@ -77,5 +80,22 @@ test('lỗi nhiều số tiền của lệnh thu không dùng ví dụ khoản c
       error instanceof InputError
       && error.message.includes('/thu lương tháng 10 15tr')
       && !error.message.includes('xôi'),
+  );
+});
+
+test('tách khoản biếu nhiều người thành giao dịch độc lập', () => {
+  assert.deepEqual(
+    parseMultipleExpenseInput('/chi biếu bà + mẹ mỗi người 500k'),
+    [
+      { amount: 500_000, description: 'biếu bà', personName: 'bà' },
+      { amount: 500_000, description: 'biếu mẹ', personName: 'mẹ' },
+    ],
+  );
+  assert.deepEqual(
+    parseMultipleExpenseInput('/chi biếu bà 500k; biếu mẹ 500k'),
+    [
+      { amount: 500_000, description: 'biếu bà', personName: 'bà' },
+      { amount: 500_000, description: 'biếu mẹ', personName: 'mẹ' },
+    ],
   );
 });

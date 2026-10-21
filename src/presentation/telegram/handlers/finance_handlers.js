@@ -1,11 +1,14 @@
+const { Markup } = require('telegraf');
 const { InputError } = require('../../../domain/errors');
 const { parseAmount, formatMoney } = require('../../../utils/amount');
 const { detectCategoryId, getCategoryName } = require('../../../utils/category');
 const {
   getCommandArguments,
   parseTransactionInput,
+  parseMultipleExpenseInput,
   parsePositiveInteger,
 } = require('../../../utils/command');
+const { parseSearchInput } = require('../../../utils/search');
 const { parseMonth, getCurrentMonth, getCurrentDateParts } = require('../../../utils/month');
 const { transactionsToCsv } = require('../../../utils/csv');
 const {
@@ -24,6 +27,13 @@ const {
   monthlyReportDetailsKeyboard,
   showMainMenu,
 } = require('../views');
+const {
+  debtListView,
+  debtCandidateKeyboard,
+  requestDebtPaymentConfirmation,
+  requestDebtCancellation,
+  requestTransactionChange,
+} = require('../action_flows');
 
 function createBudgetWarning({ config, finance }) {
   return async function getBudgetWarning(ledgerId) {
@@ -68,6 +78,7 @@ function registerFinanceHandlers(bot, {
   finance,
   ledgers,
   users,
+  pendingStore,
   getBudgetWarning = createBudgetWarning({ config, finance }),
 }) {
   const {
@@ -75,14 +86,17 @@ function registerFinanceHandlers(bot, {
     getMonthlySummary,
     getMonthlyTransactions,
     getRecentTransactions,
-    deleteTransaction,
+    searchTransactions,
+    getTransactionById,
   } = transactions;
   const {
     upsertBudget,
     getBudgetStatus,
     createDebt,
-    payDebt,
     getOpenDebts,
+    getDebtById,
+    getDebtDetails,
+    findOpenDebts,
     createRecurring,
     getRecurring,
     deleteRecurring,
@@ -90,8 +104,35 @@ function registerFinanceHandlers(bot, {
   } = finance;
   const { getLedgerAccess } = ledgers;
   const { getUser } = users;
+  const { createPending, setInput, consumeInput } = pendingStore;
   async function handleCreateTransaction(ctx, type, command) {
     const ledger = requireWritableLedger(ctx);
+    const multiple = type === 'expense' ? parseMultipleExpenseInput(ctx.message.text) : null;
+    if (multiple) {
+      const items = multiple.map((item) => ({
+        type,
+        amount: item.amount,
+        categoryId: detectCategoryId(item.description, type),
+        description: item.description,
+        personName: item.personName,
+      }));
+      const token = createPending(ctx.from.id, {
+        kind: 'transactions',
+        ledgerId: ledger.id,
+        items,
+        source: 'command',
+        sourceKey: `telegram:${ctx.chat.id}:${ctx.message.message_id}`,
+      });
+      const total = items.reduce((sum, item) => sum + item.amount, 0);
+      return ctx.reply([
+        `🔎 Tôi hiểu có ${items.length} khoản chi:`, '',
+        ...items.map((item, index) => `${index + 1}. ${item.description}: ${formatMoney(item.amount)}`),
+        '', `Tổng: ${formatMoney(total)}`,
+      ].join('\n'), Markup.inlineKeyboard([
+        Markup.button.callback(`✅ Lưu ${items.length} khoản`, `pending:save:${token}`),
+        Markup.button.callback('❌ Hủy', `pending:cancel:${token}`),
+      ]));
+    }
     const { amountText, description } = parseTransactionInput(ctx.message.text, command);
     const amount = parseAmount(amountText);
     const categoryId = detectCategoryId(description, type);
@@ -104,6 +145,9 @@ function registerFinanceHandlers(bot, {
       amount,
       categoryId,
       description,
+      counterpartyName: type === 'expense'
+        ? description.match(/^(?:biếu|tặng|cho)\s+(.+)$/iu)?.[1]?.trim().slice(0, 80) || null
+        : null,
       source: 'command',
       sourceKey,
     });
@@ -237,7 +281,27 @@ function registerFinanceHandlers(bot, {
       timezone: config.timezone,
     });
     if (!rows.length) return ctx.reply('📭 Bạn chưa có giao dịch nào.');
-    return ctx.reply(formatRecentTransactions(rows, `🕘 ${rows.length} GIAO DỊCH GẦN NHẤT`));
+    const adjustableRows = ctx.state.ledger.role === 'owner'
+      ? rows
+      : ctx.state.ledger.role === 'member'
+        ? rows.filter((row) => String(row.created_by_user_id) === String(ctx.from.id))
+        : [];
+    return ctx.reply(
+      formatRecentTransactions(rows, `🕘 ${rows.length} GIAO DỊCH GẦN NHẤT`),
+      Markup.inlineKeyboard(adjustableRows.slice(0, 8).map((row) => [
+        Markup.button.callback(`⚙️ Điều chỉnh #${row.id}`, `tx:menu:${row.id}`),
+      ])),
+    );
+  });
+  bot.command('tim', async (ctx) => {
+    const filters = parseSearchInput(getCommandArguments(ctx.message.text, 'tim'));
+    const rows = await searchTransactions({
+      ledgerId: ctx.state.ledger.id,
+      ...filters,
+      timezone: config.timezone,
+    });
+    if (!rows.length) return ctx.reply('📭 Không tìm thấy giao dịch phù hợp.');
+    return ctx.reply(formatRecentTransactions(rows, `🔎 TÌM THẤY ${rows.length} GIAO DỊCH`));
   });
   bot.command('xoa', async (ctx) => {
     requireWritableLedger(ctx);
@@ -245,14 +309,20 @@ function registerFinanceHandlers(bot, {
       getCommandArguments(ctx.message.text, 'xoa'),
       'Mã giao dịch',
     );
-    const deleted = await deleteTransaction({
-      userId: ctx.from.id,
+    const transaction = await getTransactionById({
       ledgerId: ctx.state.ledger.id,
       transactionId,
     });
-    return ctx.reply(deleted
-      ? `🗑 Đã xóa giao dịch #${deleted.id}: ${formatMoney(deleted.amount)} — ${deleted.description}`
-      : `❌ Không tìm thấy giao dịch #${transactionId} hoặc bạn không có quyền xóa.`);
+    if (!transaction) return ctx.reply(`❌ Không tìm thấy giao dịch #${transactionId}.`);
+    if (ctx.state.ledger.role !== 'owner'
+      && String(transaction.created_by_user_id) !== String(ctx.from.id)) {
+      throw new InputError('Bạn chỉ có thể hủy giao dịch do mình tạo.');
+    }
+    return requestTransactionChange(ctx, {
+      transaction,
+      reason: 'Hủy bằng lệnh /xoa',
+      createPending,
+    });
   });
   bot.command('export', async (ctx) => {
     const { month, year } = parseMonth(
@@ -300,26 +370,47 @@ function registerFinanceHandlers(bot, {
     if (!input) {
       const rows = await getOpenDebts(ctx.state.ledger.id);
       if (!rows.length) return ctx.reply('🎉 Không có khoản nợ đang mở. Ví và tâm trí đều nhẹ!');
-      return ctx.reply(['🤝 CÔNG NỢ ĐANG MỞ', '', ...rows.map((row) => {
-        const label = Number(row.debt_type) === 1
-          ? `${row.person_name} nợ bạn`
-          : `Bạn nợ ${row.person_name}`;
-        return `#${row.id} · ${label}: ${formatMoney(row.remaining_amount)}${row.due_date ? `\nHạn: ${String(row.due_date).slice(0, 10)}` : ''}`;
-      })].join('\n\n'));
+      const view = debtListView(rows, {
+        userId: ctx.from.id,
+        role: ctx.state.ledger.role,
+      });
+      return ctx.reply(view.text, view.keyboard);
     }
     const [main, description = '', dueText = ''] = input.split('|').map((part) => part.trim());
     const parts = main.split(/\s+/);
     const action = parts.shift()?.toLowerCase();
-    if (action === 'tra') {
-      const debtId = parsePositiveInteger(parts[0], 'Mã khoản nợ');
-      const amount = parseAmount(parts[1]);
+    if (['tra', 'tattoan'].includes(action)) {
       const ledger = requireWritableLedger(ctx);
-      const result = await payDebt({ userId: ctx.from.id, ledgerId: ledger.id, debtId, amount });
-      if (!result) return ctx.reply(`❌ Không tìm thấy khoản nợ đang mở #${debtId}.`);
-      return ctx.reply(`✅ Đã ghi trả ${formatMoney(result.payment)} cho khoản #${debtId}. Còn lại: ${formatMoney(result.remaining_amount)}.`);
+      const isFull = action === 'tattoan';
+      if ((!isFull && parts.length < 2) || (isFull && parts.length < 1)) {
+        throw new InputError('Ví dụ: /no tra Nam 40k hoặc /no tattoan Nam');
+      }
+      const amount = isFull ? null : parseAmount(parts.pop());
+      const target = parts.join(' ').replace(/^#/, '').trim();
+      const debts = /^\d+$/.test(target)
+        ? [await getDebtById({ ledgerId: ledger.id, debtId: Number(target) })].filter((debt) => debt?.status === 'open')
+        : await findOpenDebts({ ledgerId: ledger.id, personName: target });
+      if (!debts.length) return ctx.reply(`❌ Không tìm thấy khoản nợ đang mở của “${target}”.`);
+      if (debts.length > 1) {
+        return ctx.reply(
+          `Tìm thấy ${debts.length} khoản phù hợp. Hãy chọn đúng khoản cần ${isFull ? 'tất toán' : 'thanh toán'}:`,
+          debtCandidateKeyboard(debts, isFull ? 'full' : 'partial', amount),
+        );
+      }
+      return requestDebtPaymentConfirmation(ctx, {
+        debt: debts[0],
+        amount: isFull ? Number(debts[0].remaining_amount) : amount,
+        createPending,
+      });
     }
-    if (!['cho', 'vay'].includes(action) || parts.length < 2) {
-      throw new InputError('Ví dụ: /no cho Nam 200k | tiền Grab | 30/10/2026');
+    const debtTypeByAction = {
+      cho: 1,
+      vay: 2,
+      'phai-thu': 1,
+      'phai-tra': 2,
+    };
+    if (!debtTypeByAction[action] || parts.length < 2) {
+      throw new InputError('Ví dụ: /no phai-thu Nam 200k | tiền Grab | 30/10/2026');
     }
     const amount = parseAmount(parts.pop());
     const personName = parts.join(' ').slice(0, 80);
@@ -328,12 +419,12 @@ function registerFinanceHandlers(bot, {
       userId: ctx.from.id,
       ledgerId: ledger.id,
       personName,
-      debtType: action === 'cho' ? 1 : 2,
+      debtType: debtTypeByAction[action],
       amount,
       description: description.slice(0, 120),
       dueDate: parseDate(dueText),
     });
-    return ctx.reply(`🤝 Đã tạo khoản #${debt.id}: ${action === 'cho' ? `${personName} nợ bạn` : `bạn nợ ${personName}`} ${formatMoney(amount)}.`);
+    return ctx.reply(`🤝 Đã tạo khoản #${debt.id}: ${debtTypeByAction[action] === 1 ? `${personName} nợ bạn` : `bạn nợ ${personName}`} ${formatMoney(amount)}.`);
   });
   bot.command('dinhky', async (ctx) => {
     const input = getCommandArguments(ctx.message.text, 'dinhky');
@@ -375,6 +466,205 @@ function registerFinanceHandlers(bot, {
     });
     return ctx.reply(`🔁 Đã tạo định kỳ #${saved.id}, nhắc vào ngày ${dayOfMonth} hằng tháng. Bot sẽ hỏi trước khi ghi.`);
   });
+
+  bot.action(/^debt:(partial|full|cancel):(\d+)$/, async (ctx) => {
+    requireWritableLedger(ctx);
+    const action = ctx.match[1];
+    const debt = await getDebtById({
+      ledgerId: ctx.state.ledger.id,
+      debtId: Number(ctx.match[2]),
+    });
+    if (!debt || debt.status !== 'open') {
+      return ctx.answerCbQuery('Khoản công nợ không còn mở.', { show_alert: true });
+    }
+    await ctx.answerCbQuery();
+    if (action === 'partial') {
+      setInput(ctx.from.id, {
+        kind: 'debt_payment_amount',
+        ledgerId: debt.ledger_id,
+        debtId: Number(debt.id),
+      });
+      return ctx.reply(
+        `Nhập số tiền đã thanh toán cho khoản #${debt.id} (còn ${formatMoney(debt.remaining_amount)}).`,
+        { reply_markup: { force_reply: true, selective: true } },
+      );
+    }
+    if (action === 'cancel') {
+      return requestDebtCancellation(ctx, { debt, createPending });
+    }
+    return requestDebtPaymentConfirmation(ctx, {
+      debt,
+      amount: Number(debt.remaining_amount),
+      createPending,
+    });
+  });
+
+  bot.action(/^debt:list:(\d+)$/, async (ctx) => {
+    const rows = await getOpenDebts(ctx.state.ledger.id);
+    if (!rows.length) {
+      await ctx.answerCbQuery();
+      return ctx.editMessageText('🎉 Không còn khoản nợ đang mở.');
+    }
+    const view = debtListView(rows, {
+      userId: ctx.from.id,
+      role: ctx.state.ledger.role,
+      page: Number(ctx.match[1]),
+    });
+    await ctx.answerCbQuery();
+    return ctx.editMessageText(view.text, view.keyboard);
+  });
+
+  bot.action(/^debt:details:(\d+)$/, async (ctx) => {
+    const debt = await getDebtDetails({
+      ledgerId: ctx.state.ledger.id,
+      debtId: Number(ctx.match[1]),
+      timezone: config.timezone,
+    });
+    if (!debt) {
+      return ctx.answerCbQuery('Không tìm thấy khoản công nợ.', { show_alert: true });
+    }
+    const paid = Number(debt.original_amount) - Number(debt.remaining_amount);
+    const paymentLines = debt.payments.length
+      ? debt.payments.map((payment) =>
+        `• ${formatMoney(payment.amount)} · ${payment.paid_at} · ${payment.created_by_name}`)
+      : ['• Chưa có lần thanh toán nào'];
+    await ctx.answerCbQuery();
+    return ctx.reply([
+      `🤝 CHI TIẾT CÔNG NỢ #${debt.id}`, '',
+      Number(debt.debt_type) === 1 ? `${debt.person_name} nợ bạn` : `Bạn nợ ${debt.person_name}`,
+      `Ban đầu: ${formatMoney(debt.original_amount)}`,
+      `Đã trả: ${formatMoney(paid)}`,
+      `Còn lại: ${formatMoney(debt.remaining_amount)}`,
+      ...(debt.description ? [`Lý do: ${debt.description}`] : []),
+      '', 'LỊCH SỬ THANH TOÁN', ...paymentLines,
+    ].join('\n'));
+  });
+
+  bot.action(/^debt:choose:(partial|full):(\d+):(\d+)$/, async (ctx) => {
+    requireWritableLedger(ctx);
+    const [, action, debtIdText, amountText] = ctx.match;
+    const debt = await getDebtById({
+      ledgerId: ctx.state.ledger.id,
+      debtId: Number(debtIdText),
+    });
+    if (!debt || debt.status !== 'open') {
+      return ctx.answerCbQuery('Khoản công nợ không còn mở.', { show_alert: true });
+    }
+    await ctx.answerCbQuery();
+    return requestDebtPaymentConfirmation(ctx, {
+      debt,
+      amount: action === 'full' ? Number(debt.remaining_amount) : Number(amountText),
+      createPending,
+    });
+  });
+
+  bot.action(/^tx:menu:(\d+)$/, async (ctx) => {
+    requireWritableLedger(ctx);
+    const transaction = await getTransactionById({
+      ledgerId: ctx.state.ledger.id,
+      transactionId: Number(ctx.match[1]),
+    });
+    if (!transaction) {
+      return ctx.answerCbQuery('Giao dịch không còn tồn tại.', { show_alert: true });
+    }
+    if (ctx.state.ledger.role !== 'owner'
+      && String(transaction.created_by_user_id) !== String(ctx.from.id)) {
+      return ctx.answerCbQuery('Bạn chỉ có thể sửa giao dịch do mình tạo.', { show_alert: true });
+    }
+    await ctx.answerCbQuery();
+    return ctx.reply(
+      `Giao dịch #${transaction.id}\n${formatMoney(transaction.amount)} · ${transaction.description}`,
+      Markup.inlineKeyboard([
+        Markup.button.callback('✏️ Sửa số tiền', `tx:adjust:${transaction.id}`),
+        Markup.button.callback('🚫 Hủy giao dịch', `tx:cancel:${transaction.id}`),
+      ]),
+    );
+  });
+
+  bot.action(/^tx:(adjust|cancel):(\d+)$/, async (ctx) => {
+    requireWritableLedger(ctx);
+    const action = ctx.match[1];
+    const transaction = await getTransactionById({
+      ledgerId: ctx.state.ledger.id,
+      transactionId: Number(ctx.match[2]),
+    });
+    if (!transaction) {
+      return ctx.answerCbQuery('Giao dịch không còn tồn tại.', { show_alert: true });
+    }
+    if (ctx.state.ledger.role !== 'owner'
+      && String(transaction.created_by_user_id) !== String(ctx.from.id)) {
+      return ctx.answerCbQuery('Bạn chỉ có thể sửa giao dịch do mình tạo.', { show_alert: true });
+    }
+    await ctx.answerCbQuery();
+    if (action === 'cancel') {
+      return requestTransactionChange(ctx, {
+        transaction,
+        reason: 'Hủy từ lịch sử giao dịch',
+        createPending,
+      });
+    }
+    setInput(ctx.from.id, {
+      kind: 'transaction_adjust_amount',
+      ledgerId: transaction.ledger_id,
+      transactionId: Number(transaction.id),
+    });
+    return ctx.reply(
+      `Nhập số tiền mới cho giao dịch #${transaction.id}. Có thể thêm ghi chú sau dấu |.\nVí dụ: 500k | biếu bà`,
+      { reply_markup: { force_reply: true, selective: true } },
+    );
+  });
+
+  async function handleFinanceTextInput(ctx) {
+    const input = consumeInput(ctx.from.id);
+    if (!input) return false;
+    requireWritableLedger(ctx);
+    if (Number(input.ledgerId) !== Number(ctx.state.ledger.id)) {
+      throw new InputError('Bạn đã đổi sổ. Hãy mở lại thao tác trong sổ hiện tại.');
+    }
+    if (input.kind === 'debt_payment_amount') {
+      const debt = await getDebtById({ ledgerId: input.ledgerId, debtId: input.debtId });
+      if (!debt || debt.status !== 'open') throw new InputError('Khoản công nợ không còn mở.');
+      let amount;
+      try {
+        amount = parseAmount(ctx.message.text);
+      } catch (error) {
+        setInput(ctx.from.id, input);
+        throw error;
+      }
+      await requestDebtPaymentConfirmation(ctx, {
+        debt,
+        amount,
+        createPending,
+      });
+      return true;
+    }
+    if (input.kind === 'transaction_adjust_amount') {
+      const [amountText, description = ''] = ctx.message.text.split('|').map((part) => part.trim());
+      const transaction = await getTransactionById({
+        ledgerId: input.ledgerId,
+        transactionId: input.transactionId,
+      });
+      if (!transaction) throw new InputError('Giao dịch không còn tồn tại.');
+      let newAmount;
+      try {
+        newAmount = parseAmount(amountText);
+      } catch (error) {
+        setInput(ctx.from.id, input);
+        throw error;
+      }
+      await requestTransactionChange(ctx, {
+        transaction,
+        newAmount,
+        newDescription: description || null,
+        reason: 'Điều chỉnh từ lịch sử giao dịch',
+        createPending,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  return handleFinanceTextInput;
 }
 
 module.exports = { registerFinanceHandlers, createBudgetWarning };

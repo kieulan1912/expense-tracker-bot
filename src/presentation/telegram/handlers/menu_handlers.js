@@ -177,7 +177,7 @@ function registerMenuHandlers(bot, {
   });
   bot.action('plan:debts', async (ctx) => {
     await ctx.answerCbQuery();
-    return ctx.reply('Dùng /no để xem công nợ hoặc /no cho Nam 200k | tiền Grab để tạo mới.');
+    return ctx.reply('Dùng /no để xem và thao tác bằng nút. Tạo mới: /no phai-thu Nam 200k | tiền Grab hoặc /no phai-tra Lan 1tr | tiền nhà.');
   });
   bot.action('plan:recurring', async (ctx) => {
     await ctx.answerCbQuery();

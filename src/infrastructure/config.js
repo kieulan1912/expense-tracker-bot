@@ -78,15 +78,15 @@ const config = {
   aiEnabled: parseBooleanEnvironment('AI_ENABLED', true),
   aiTextDailyLimit: parsePositiveIntegerEnvironment(
     'AI_TEXT_DAILY_LIMIT_PER_USER',
-    30,
+    150,
   ),
   aiImageDailyLimit: parsePositiveIntegerEnvironment(
     'AI_IMAGE_DAILY_LIMIT_PER_USER',
-    5,
+    10,
   ),
   aiGlobalDailyLimit: parsePositiveIntegerEnvironment(
     'AI_GLOBAL_DAILY_LIMIT',
-    200,
+    300,
   ),
   ocrMaxImageMb: parsePositiveIntegerEnvironment('OCR_MAX_IMAGE_MB', 10),
   confirmationThreshold: parsePositiveIntegerEnvironment(

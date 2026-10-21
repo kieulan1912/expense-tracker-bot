@@ -4,6 +4,7 @@ const botCommands = Object.freeze([
   { command: 'thu', description: 'Ghi một khoản thu' },
   { command: 'baocao', description: 'Xem báo cáo tháng' },
   { command: 'lichsu', description: 'Xem N giao dịch gần nhất' },
+  { command: 'tim', description: 'Tìm và lọc giao dịch' },
   { command: 'export', description: 'Xuất CSV theo tháng' },
   { command: 'menu', description: 'Mở tất cả chức năng' },
 ]);

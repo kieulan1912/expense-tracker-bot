@@ -147,4 +147,5 @@ module.exports = {
   detectCategoryId,
   getCategoryName,
   isSensitiveCategory,
+  normalizeForCategory,
 };

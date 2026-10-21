@@ -87,6 +87,41 @@ function parseTransactionInput(text, command) {
   return { amountText: amount.amountText, description };
 }
 
+function parseMultipleExpenseInput(text) {
+  const input = getCommandArguments(text, 'chi');
+  const sharedAmount = input.match(
+    /^(biếu|tặng|cho)\s+(.+?)\s+mỗi\s+người\s+(.+)$/iu,
+  );
+  if (sharedAmount) {
+    const people = sharedAmount[2]
+      .split(/\s*(?:\+|,|\bvà\b)\s*/iu)
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (people.length < 2) return null;
+    const amount = parseAmount(sharedAmount[3].replace(/vnđ/giu, 'VND'));
+    return people.map((personName) => ({
+      amount,
+      description: `${sharedAmount[1].toLowerCase()} ${personName}`,
+      personName: personName.slice(0, 80),
+    }));
+  }
+
+  if (!input.includes(';')) return null;
+  const segments = input.split(';').map((part) => part.trim()).filter(Boolean);
+  if (segments.length < 2 || segments.length > 10) {
+    throw new InputError('Mỗi lần chỉ ghi từ 2 đến 10 khoản, ngăn cách bằng dấu chấm phẩy.');
+  }
+  return segments.map((segment) => {
+    const { amountText, description } = parseTransactionInput(`/chi ${segment}`, 'chi');
+    const recipient = description.match(/^(?:biếu|tặng|cho)\s+(.+)$/iu)?.[1]?.trim() || null;
+    return {
+      amount: parseAmount(amountText),
+      description,
+      personName: recipient?.slice(0, 80) || null,
+    };
+  });
+}
+
 function parsePositiveInteger(input, label) {
   if (!/^\d+$/.test(input)) {
     throw new InputError(`${label} không hợp lệ.`);
@@ -104,5 +139,6 @@ function parsePositiveInteger(input, label) {
 module.exports = {
   getCommandArguments,
   parseTransactionInput,
+  parseMultipleExpenseInput,
   parsePositiveInteger,
 };

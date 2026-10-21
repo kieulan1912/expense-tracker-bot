@@ -21,6 +21,7 @@ test('báo cáo tách chênh lệch thu chi và ngân sách còn lại', () => {
   assert.match(text, /BÁO CÁO THÁNG 10\/2026/);
   assert.match(text, /Tính đến ngày 16\/10\/2026/);
   assert.match(text, /Tổng thu tháng 10\/2026: 10\.000\.000 VNĐ/);
+  assert.match(text, /Tổng tiền đã chi: 2\.000\.000 VNĐ/);
   assert.match(text, /Tổng chi tháng 10\/2026: 2\.000\.000 VNĐ/);
   assert.match(text, /Chênh lệch thu–chi: 8\.000\.000 VNĐ/);
   assert.match(text, /Ngân sách tháng: 10\.000\.000 VNĐ/);

@@ -11,6 +11,23 @@ const responseSchema = {
     needs_confirmation: { type: 'BOOLEAN' },
     occurred_at: { type: 'STRING', nullable: true },
     limit: { type: 'INTEGER', nullable: true },
+    filters: {
+      type: 'OBJECT',
+      properties: {
+        keyword: { type: 'STRING', nullable: true },
+        transaction_type: { type: 'STRING', enum: ['expense', 'income', 'all'] },
+        category_id: { type: 'INTEGER', nullable: true },
+        amount_min: { type: 'INTEGER', nullable: true },
+        amount_max: { type: 'INTEGER', nullable: true },
+        date_from: { type: 'STRING', nullable: true },
+        date_to: { type: 'STRING', nullable: true },
+        created_by: { type: 'STRING', nullable: true },
+      },
+      required: [
+        'keyword', 'transaction_type', 'category_id', 'amount_min', 'amount_max',
+        'date_from', 'date_to', 'created_by',
+      ],
+    },
     items: {
       type: 'ARRAY',
       items: {
@@ -21,8 +38,14 @@ const responseSchema = {
           description: { type: 'STRING' },
           person_name: { type: 'STRING', nullable: true },
           debt_type: { type: 'INTEGER', nullable: true },
+          target_id: { type: 'INTEGER', nullable: true },
+          settle_full: { type: 'BOOLEAN' },
+          adjustment_amount: { type: 'INTEGER', nullable: true },
         },
-        required: ['amount', 'category_id', 'description', 'person_name', 'debt_type'],
+        required: [
+          'amount', 'category_id', 'description', 'person_name', 'debt_type',
+          'target_id', 'settle_full', 'adjustment_amount',
+        ],
       },
     },
   },
@@ -33,6 +56,7 @@ const responseSchema = {
     'needs_confirmation',
     'occurred_at',
     'limit',
+    'filters',
     'items',
   ],
 };
@@ -41,7 +65,15 @@ const systemPrompt = `Bạn là Quản gia Tài chính AI cho người Việt. C
 Danh mục chi: 1 Ăn uống/siêu thị; 2 Di chuyển; 3 Hóa đơn/sinh hoạt; 4 Mua sắm/giải trí; 5 Sức khỏe; 6 Giáo dục/phát triển; 7 Cho tặng/gia đình/từ thiện; 99 Khác.
 Danh mục thu: 91 Lương; 92 Thưởng; 93 Đầu tư; 94 Kinh doanh; 99 Khác.
 Hiểu k/kđ/nghìn/ngàn = 1000; tr/triệu/củ = 1000000; lét/tờ = 100000. Tách nhiều giao dịch thành nhiều items.
-Nếu người dùng muốn xem N giao dịch gần đây/gần nhất/lịch sử, intent=HISTORY_REQ và limit=N (mặc định 10). HISTORY_REQ khác REPORT_REQ: báo cáo là tổng hợp theo tháng, lịch sử là danh sách giao dịch. Với intent khác, limit=null.
+Nếu người dùng chỉ muốn xem N giao dịch gần đây/gần nhất/lịch sử mà không có tiêu chí, intent=HISTORY_REQ và limit=N (mặc định 10).
+Nếu người dùng muốn tìm/lọc giao dịch theo nội dung, loại thu chi, danh mục, khoảng tiền, ngày/tháng hoặc người ghi, intent=SEARCH_REQ. Ví dụ “tìm giao dịch mua sữa cho con” => keyword="mua sữa cho con"; “các khoản chi mua sữa tháng 10/2026 trên 100k do Lân ghi” => kết hợp tất cả filter theo AND. Ngày filter có dạng YYYY-MM-DD, transaction_type là expense/income/all. Không bịa điều kiện người dùng không nói. SEARCH_REQ và HISTORY_REQ khác REPORT_REQ: báo cáo là tổng hợp, tìm kiếm/lịch sử là danh sách. limit mặc định 10, tối đa 20.
+Với intent không phải SEARCH_REQ, đặt toàn bộ filters về null (transaction_type="all").
+DEBT_ADD dùng khi tạo khoản phải thu/phải trả. debt_type=1 khi người khác nợ người dùng; debt_type=2 khi người dùng nợ người khác.
+DEBT_PAY dùng khi người dùng nói một khoản nợ đã được trả một phần hoặc toàn bộ. Trả hết thì settle_full=true và amount=0 nếu không biết số tiền; trả một phần thì settle_full=false và amount là số đã trả. Không coi trả nợ là thu nhập/chi tiêu.
+DEBT_CANCEL chỉ dùng khi khoản nợ nhập sai hoặc không còn hiệu lực, không dùng thay cho trả nợ.
+TRANSACTION_CANCEL dùng khi khoản chi chưa thực sự xảy ra, ví dụ “mẹ không nhận tiền biếu”. TRANSACTION_ADJUST dùng khi chỉ một phần khoản chi bị hủy/hoàn; adjustment_amount là phần cần giảm. Luôn needs_confirmation=true cho các intent thay đổi dữ liệu đã lưu.
+Nếu câu có nhiều người nhận như “biếu bà và mẹ mỗi người 500k”, tạo một EXPENSE item riêng cho từng người, amount=500000, person_name tương ứng, category_id=7.
+target_id là ID được người dùng nói rõ; nếu không có thì null. Với các field không áp dụng: settle_full=false, adjustment_amount=null.
 Giọng mặc định hài hước nhưng tuyệt đối không trêu chọc sức khỏe, giáo dục, gia đình hoặc từ thiện. reply tối đa 180 ký tự. description tối đa 40 ký tự.
 Ngày hiện tại và múi giờ được cung cấp trong input. Nếu không nói ngày, occurred_at là null. confidence từ 0 đến 1. OCR và thông tin mơ hồ luôn needs_confirmation=true.`;
 

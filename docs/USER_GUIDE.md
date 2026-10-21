@@ -5,7 +5,7 @@
 
 ## 1. Nguyên tắc giao diện
 
-Người dùng không cần nhớ toàn bộ command. Telegram chỉ hiển thị bảy lệnh chính:
+Người dùng không cần nhớ toàn bộ command. Telegram chỉ hiển thị tám lệnh chính:
 
 ```text
 /start   Bắt đầu hoặc xem tổng quan
@@ -13,6 +13,7 @@ Người dùng không cần nhớ toàn bộ command. Telegram chỉ hiển th�
 /thu     Ghi khoản thu
 /baocao  Xem báo cáo tháng
 /lichsu  Xem giao dịch gần nhất
+/tim     Tìm và lọc giao dịch
 /export  Xuất file CSV theo tháng
 /menu    Mở tất cả chức năng
 ```
@@ -80,6 +81,8 @@ member không thấy nút mời, đổi quyền hoặc xóa sổ.
 /chi 15k ăn xôi sáng
 /chi ăn xôi sáng 15k
 /chi mua 2 vé xem phim 150k
+/chi biếu bà và mẹ mỗi người 500k
+/chi biếu bà 500k; biếu mẹ 500k
 /thu 20tr lương tháng 10
 /thu lương tháng 10 20tr
 ```
@@ -92,6 +95,10 @@ Bot không gọi Gemini cho các lệnh này nên không tốn AI quota. Nội d
 không có dấu đều được chuẩn hóa trước khi so khớp; ví dụ `ăn xôi sáng` và
 `AN XOI SANG` đều được xếp vào **Ăn uống**. Nếu không có từ khóa phù hợp, bot
 dùng danh mục **Khác**.
+
+Khoản có nhiều người nhận được tách thành các giao dịch riêng. Bot hiển thị số
+tiền từng người và tổng cộng, sau đó yêu cầu xác nhận trước khi lưu. Nhờ vậy,
+nếu một người không nhận tiền thì chỉ cần hủy đúng giao dịch của người đó.
 
 ### Dùng câu tự nhiên
 
@@ -119,7 +126,49 @@ Phản hồi thành công phải chỉ rõ sổ đang ghi:
 [↩️ Hoàn tác]
 ```
 
-## 4. Tạo sổ chung
+### Điều chỉnh hoặc hủy giao dịch
+
+Gõ `/lichsu`, sau đó chọn **Điều chỉnh #ID** dưới giao dịch cần xử lý:
+
+- **Sửa số tiền:** nhập số tiền mới, có thể thêm ghi chú sau dấu `|`.
+- **Hủy giao dịch:** giao dịch không còn được tính trong báo cáo, CSV và ngân
+  sách nhưng lịch sử thay đổi vẫn được lưu.
+
+Shortcut `/xoa ID` vẫn được hỗ trợ nhưng luôn hiển thị bước xác nhận. Owner có
+thể xử lý mọi giao dịch trong sổ; member chỉ xử lý giao dịch do mình tạo.
+
+Với AI, có thể nhắn `Mẹ không nhận khoản biếu 500k` hoặc `Giảm khoản biếu bà và
+mẹ 1 triệu xuống còn 500k`. Bot tìm giao dịch trong 90 ngày gần nhất và yêu cầu
+chọn nếu có nhiều kết quả; AI không tự sửa dữ liệu khi chưa xác nhận.
+
+## 4. Quản lý công nợ
+
+Gõ `/no` để xem bốn khoản mỗi trang cùng các nút thao tác và nút chuyển trang:
+
+- **Trả:** nhập số tiền đã thanh toán và xác nhận.
+- **Tất toán:** thanh toán toàn bộ số còn lại và xác nhận.
+- **Chi tiết:** xem số ban đầu, đã trả, còn lại và từng lần thanh toán.
+- **Hủy khoản:** chỉ dùng khi nhập sai hoặc khoản không còn hiệu lực; không dùng
+  thay cho trả nợ.
+
+Cú pháp dễ đọc:
+
+```text
+/no phai-thu Nam 100k | tiền Grab
+/no phai-tra Lan 1tr | tiền nhà
+/no tra Nam 40k
+/no tattoan Nam
+```
+
+Cú pháp cũ `/no cho`, `/no vay` và `/no tra ID SỐ_TIỀN` vẫn hoạt động. Nếu một
+người có nhiều khoản đang mở, bot hiển thị danh sách để chọn đúng ID. Số tiền
+trả lớn hơn dư nợ bị từ chối thay vì tự động cắt xuống.
+
+Thanh toán nợ gốc được lưu trong lịch sử công nợ, không được tính là thu nhập
+hoặc chi tiêu. Owner/member có thể ghi thanh toán; member chỉ được hủy khoản do
+mình tạo, còn owner có thể hủy mọi khoản trong sổ.
+
+## 5. Tạo sổ chung
 
 1. Gửi `/menu`.
 2. Chọn **Sổ chung → Tạo sổ**.
@@ -134,7 +183,7 @@ Command tương đương dành cho người dùng nâng cao:
 /taoso Gia đình Lân & Thu
 ```
 
-## 5. Mời người khác
+## 6. Mời người khác
 
 1. Owner mở **Menu → Sổ chung → Mời người**.
 2. Bot gửi mã mời dùng một lần, có hiệu lực 24 giờ.
@@ -149,7 +198,7 @@ Command tương đương:
 Không đăng mã ở nơi công cộng. Có mã vẫn chưa đủ quyền truy cập; owner phải phê
 duyệt yêu cầu tham gia.
 
-## 6. Tham gia sổ
+## 7. Tham gia sổ
 
 Người được mời thực hiện:
 
@@ -172,7 +221,7 @@ Khi owner chấp nhận, bot thông báo và hỏi có chuyển sang sổ mới 
 [Chuyển sang sổ này] [Để sau]
 ```
 
-## 7. Chuyển sổ hiện tại
+## 8. Chuyển sổ hiện tại
 
 Mở **Menu → Sổ chung → Đổi sổ**, sau đó chọn bằng nút:
 
@@ -191,7 +240,7 @@ Command tương đương:
 /chonso 2
 ```
 
-## 8. Quản lý thành viên
+## 9. Quản lý thành viên
 
 Owner mở **Menu → Sổ chung → Thành viên**:
 
@@ -213,7 +262,7 @@ Thu sẽ mất quyền truy cập ngay. Các giao dịch Thu đã ghi vẫn đư
 
 Member và viewer chỉ xem được danh sách, không thấy nút quản trị.
 
-## 9. Quyền của từng vai trò
+## 10. Quyền của từng vai trò
 
 - **Chủ sổ:** toàn quyền, mời và remove thành viên, đổi role, xóa sổ.
 - **Thành viên:** xem toàn bộ sổ, thêm dữ liệu, sửa/xóa dữ liệu mình tạo.
@@ -226,19 +275,46 @@ Nếu thao tác không được phép, bot giải thích và đưa hành động
 Hãy liên hệ chủ sổ nếu bạn cần quyền Thành viên.
 ```
 
-## 10. Báo cáo và lịch sử
+## 11. Báo cáo và lịch sử
 
 ```text
 /baocao
 /baocao 09/2026
 /lichsu
 /lichsu 3
+/tim sữa cho con
+/tim sữa cho con | chi | tháng 10/2026 | min 100k | người Lân
 /export
 /export 09/2026
 ```
 
 Báo cáo của sổ chung bao gồm dữ liệu của tất cả thành viên. Lịch sử hiển thị
 người ghi từng giao dịch và cho phép chọn tối đa 20 giao dịch mỗi lần.
+
+### Tìm và lọc giao dịch
+
+`/tim` tìm trong sổ đang chọn và không dùng AI quota. Từ khóa được so khớp
+không phân biệt hoa/thường hoặc dấu tiếng Việt. Tách các điều kiện bằng dấu
+`|`; tất cả điều kiện được kết hợp theo AND:
+
+```text
+/tim mua sữa cho con
+/tim sữa | chi | tháng 10/2026
+/tim tiền học | từ 01/09/2026 | đến 31/10/2026
+/tim | thu | danh mục Lương | min 10tr
+/tim | người Lân | max 500k | giới hạn 20
+```
+
+Các bộ lọc được hỗ trợ:
+
+- `chi` hoặc `thu`.
+- `ngày DD/MM/YYYY`, `tháng MM/YYYY`, `từ DD/MM/YYYY`, `đến DD/MM/YYYY`.
+- `min SỐ_TIỀN`, `max SỐ_TIỀN`.
+- `danh mục TÊN_HOẶC_ID`, `người TÊN`, `giới hạn 1..20`.
+
+Có thể hỏi tự nhiên, ví dụ `Tìm các khoản mua sữa cho con trong tháng 10 trên
+100k do Lân ghi`. Gemini chỉ chuyển câu nói thành bộ lọc; bot không gửi lịch sử
+giao dịch lên Gemini và PostgreSQL mới là nơi thực hiện truy vấn.
 
 Sau khi bot trả tổng thu, tổng chi và chênh lệch thu–chi, bot hiển thị thêm
 ngân sách tổng, số tiền còn lại và tỷ lệ đã dùng nếu sổ đã đặt ngân sách tổng
@@ -254,7 +330,7 @@ tổng. Bot kiểm tra lại quyền truy cập sổ ở mỗi lần bấm nút.
 File CSV định dạng số tiền theo hàng nghìn (`1.250.000`) và có ba dòng tổng
 hợp cuối file: tổng thu, tổng chi và chênh lệch thu–chi.
 
-## 11. Rời hoặc xóa sổ
+## 12. Rời hoặc xóa sổ
 
 ### Thành viên rời sổ
 
@@ -269,7 +345,7 @@ yêu cầu xác nhận hai bước. Không thể hoàn tác sau khi hoàn tất.
 `/deletedata` xóa sổ cá nhân, cài đặt và membership sau khi xác nhận. Nếu người
 dùng còn sở hữu sổ chung, bot yêu cầu xử lý các sổ đó trước.
 
-## 12. Quy tắc UX và behavior
+## 13. Quy tắc UX và behavior
 
 - Một màn hình tối đa 6–8 nút và chỉ hiển thị hành động phù hợp với role.
 - Dùng nút cho lựa chọn; chỉ yêu cầu gõ khi nhập số tiền, tên, mô tả hoặc mã mời.
@@ -282,12 +358,12 @@ dùng còn sở hữu sổ chung, bot yêu cầu xử lý các sổ đó trướ
 - Menu command của Telegram chỉ chứa chức năng thường dùng; command nâng cao
   được coi là shortcut, không phải cách khám phá tính năng chính.
 
-## 13. Command đầy đủ cho người dùng nâng cao
+## 14. Command đầy đủ cho người dùng nâng cao
 
 Các lệnh chính được hiển thị:
 
 ```text
-/start /chi /thu /baocao /lichsu /export /menu
+/start /chi /thu /baocao /lichsu /tim /export /menu
 ```
 
 Các shortcut ẩn nhưng vẫn hỗ trợ:

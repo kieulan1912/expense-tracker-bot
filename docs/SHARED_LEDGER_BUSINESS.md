@@ -63,6 +63,15 @@ trò chuyện riêng với bot.
 Quyền phải được kiểm tra ở tầng service/repository cho mọi thao tác; việc ẩn nút
 trên UI không được xem là biện pháp bảo mật.
 
+Với công nợ, owner và member đều được ghi nhận thanh toán. Member chỉ được hủy
+khoản công nợ do mình tạo; owner được hủy mọi khoản. Thanh toán nợ gốc lưu ở
+`debt_payments` và không phát sinh khoản thu/chi mới.
+
+Giao dịch không bị hard-delete khi hủy. Repository chuyển trạng thái sang
+`cancelled` và ghi snapshot trước/sau vào `transaction_adjustments`. Báo cáo,
+ngân sách, lịch sử đang hoạt động và CSV chỉ đọc giao dịch `active`. Owner được
+điều chỉnh mọi giao dịch; member chỉ được điều chỉnh giao dịch do mình tạo.
+
 ## 5. Luồng nghiệp vụ
 
 ### 5.1. Khởi tạo

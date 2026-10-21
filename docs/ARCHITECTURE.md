@@ -7,9 +7,8 @@ biết Telegram, PostgreSQL, Gemini hay biến môi trường; presentation khô
 data adapter trực tiếp; infrastructure composition root là nơi duy nhất nối các
 dependency khi ứng dụng khởi động.
 
-Refactor này chỉ thay đổi tổ chức và chiều phụ thuộc. Database schema, migration,
-command, callback payload, environment variables và hành vi người dùng được giữ
-nguyên.
+Schema được mở rộng bằng migration idempotent trong `database.js`; deploy không
+cần chạy SQL thủ công.
 
 ## Cấu trúc
 
@@ -65,6 +64,9 @@ Infrastructure composition root tạo và nối tất cả dependency.
 - `use_cases/*_use_cases.js` cung cấp API nghiệp vụ cho presentation/scheduler.
 - `ledger_policy.js`, `report_service.js` và `ai_result_validator.js` là logic
   thuần, không import Telegraf, PostgreSQL hoặc config runtime.
+- Tìm kiếm tự nhiên được AI chuẩn hóa thành filter DTO; repository luôn áp
+  `ledger_id`, trạng thái active và các điều kiện SQL trước khi so khớp từ khóa
+  đã bỏ dấu. Dữ liệu giao dịch không được đưa vào prompt Gemini.
 
 JavaScript không có interface native nên contract được biểu diễn bằng danh sách
 method bất biến và kiểm tra runtime. Cách này không cần DI framework nhưng vẫn
@@ -88,6 +90,8 @@ hoặc request giả mạo không thể bỏ qua membership/role.
 - `context.js` xử lý rate limit, user context, active ledger và chuyển policy
   thành lỗi thân thiện.
 - `views.js` tạo message và inline keyboard dùng lại.
+- `action_flows.js` tạo preview/xác nhận dùng chung cho công nợ và điều chỉnh
+  giao dịch; handler không cập nhật dữ liệu trước khi callback xác nhận.
 - Các handler chỉ biết Telegram, domain service và use-case API; không import
   `src/data`.
 
@@ -130,7 +134,8 @@ hoặc request giả mạo không thể bỏ qua membership/role.
 - Entry point vẫn là `src/index.js`.
 - Start command vẫn là `npm start`.
 - Không thêm hoặc đổi environment variable.
-- Không đổi schema/migration vì refactor layer.
+- Migration bổ sung audit điều chỉnh giao dịch, trạng thái hủy, người tạo công
+  nợ và lịch sử thanh toán idempotent.
 - Command, callback payload và Telegram response hiện có được giữ nguyên.
 - Các file repository/service legacy ở root `src/` đã được chuyển vào layer mới;
   không giữ compatibility adapter trùng lặp.

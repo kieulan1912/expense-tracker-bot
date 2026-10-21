@@ -7,6 +7,12 @@ const { resolveImageMime, looksLikeSupportedImage } = require('../../../utils/im
 const { formatMonthlyReport } = require('../../../domain/services/report_service');
 const { requireWritableLedger } = require('../context');
 const {
+  debtCandidateKeyboard,
+  requestDebtPaymentConfirmation,
+  requestDebtCancellation,
+  requestTransactionChange,
+} = require('../action_flows');
+const {
   transactionLines,
   sendSaved,
   formatRecentTransactions,
@@ -25,6 +31,9 @@ async function saveAiResult(ctx, result, source, dependencies) {
     createTransactions,
     getMonthlySummary,
     getRecentTransactions,
+    searchTransactions,
+    getTransactionById,
+    findRecentExpenseCandidates,
   } = transactions;
   const { createPending } = pendingStore;
   if (result.intent === 'HISTORY_REQ') {
@@ -36,6 +45,16 @@ async function saveAiResult(ctx, result, source, dependencies) {
     });
     if (!rows.length) return ctx.reply('📭 Bạn chưa có giao dịch nào.');
     return ctx.reply(formatRecentTransactions(rows, `🕘 ${rows.length} GIAO DỊCH GẦN NHẤT`));
+  }
+  if (result.intent === 'SEARCH_REQ') {
+    const rows = await searchTransactions({
+      ledgerId: ctx.state.ledger.id,
+      ...result.filters,
+      limit: result.limit || 10,
+      timezone: config.timezone,
+    });
+    if (!rows.length) return ctx.reply('📭 Không tìm thấy giao dịch phù hợp với các điều kiện đó.');
+    return ctx.reply(formatRecentTransactions(rows, `🔎 TÌM THẤY ${rows.length} GIAO DỊCH`));
   }
   if (result.intent === 'REPORT_REQ') {
     const { month, year } = getCurrentMonth(config.timezone);
@@ -63,6 +82,7 @@ async function saveAiResult(ctx, result, source, dependencies) {
     const mustConfirm = source === 'ocr'
       || result.needsConfirmation
       || result.confidence < 0.9
+      || result.items.length > 1
       || result.items.some((item) => item.amount >= config.confirmationThreshold);
     if (mustConfirm) {
       const sourceKey = `telegram:${ctx.chat.id}:${ctx.message?.message_id || ctx.update.update_id}`;
@@ -113,6 +133,102 @@ async function saveAiResult(ctx, result, source, dependencies) {
         Markup.button.callback('❌ Hủy', `pending:cancel:${token}`),
       ]),
     );
+  }
+  if (['DEBT_PAY', 'DEBT_CANCEL'].includes(result.intent)) {
+    const ledger = requireWritableLedger(ctx);
+    const item = result.items[0];
+    let candidates = item.targetId
+      ? [await finance.getDebtById({ ledgerId: ledger.id, debtId: item.targetId })]
+        .filter((debt) => debt?.status === 'open')
+      : await finance.findOpenDebts({
+        ledgerId: ledger.id,
+        personName: item.personName || '',
+      });
+    if (result.intent === 'DEBT_CANCEL' && ledger.role !== 'owner') {
+      candidates = candidates.filter(
+        (debt) => String(debt.created_by_user_id) === String(ctx.from.id),
+      );
+    }
+    if (!candidates.length) {
+      return ctx.reply('❌ Tôi không tìm thấy khoản công nợ đang mở phù hợp. Gõ /no để xem danh sách.');
+    }
+    if (candidates.length > 1) {
+      if (result.intent === 'DEBT_CANCEL') {
+        return ctx.reply(
+          'Tìm thấy nhiều khoản phù hợp. Hãy chọn đúng khoản cần hủy:',
+          Markup.inlineKeyboard(candidates.slice(0, 8).map((debt) => [
+            Markup.button.callback(
+              `🚫 #${debt.id} · ${debt.person_name} · ${formatMoney(debt.remaining_amount)}`,
+              `debt:cancel:${debt.id}`,
+            ),
+          ])),
+        );
+      }
+      return ctx.reply(
+        'Tìm thấy nhiều khoản phù hợp. Hãy chọn đúng khoản đã thanh toán:',
+        debtCandidateKeyboard(
+          candidates,
+          item.settleFull ? 'full' : 'partial',
+          item.amount,
+        ),
+      );
+    }
+    if (result.intent === 'DEBT_CANCEL') {
+      return requestDebtCancellation(ctx, { debt: candidates[0], createPending });
+    }
+    return requestDebtPaymentConfirmation(ctx, {
+      debt: candidates[0],
+      amount: item.settleFull ? Number(candidates[0].remaining_amount) : item.amount,
+      createPending,
+    });
+  }
+  if (['TRANSACTION_CANCEL', 'TRANSACTION_ADJUST'].includes(result.intent)) {
+    const ledger = requireWritableLedger(ctx);
+    const item = result.items[0];
+    let candidates = item.targetId
+      ? [await getTransactionById({ ledgerId: ledger.id, transactionId: item.targetId })]
+        .filter(Boolean)
+      : await findRecentExpenseCandidates({
+        ledgerId: ledger.id,
+        personName: item.personName || '',
+        amount: item.adjustmentAmount || item.amount || null,
+        limit: 8,
+      });
+    if (ledger.role !== 'owner') {
+      candidates = candidates.filter(
+        (transaction) => String(transaction.created_by_user_id) === String(ctx.from.id),
+      );
+    }
+    if (!candidates.length) {
+      return ctx.reply('❌ Tôi không tìm thấy khoản chi phù hợp trong 90 ngày gần đây. Dùng /lichsu để kiểm tra ID.');
+    }
+    const reduction = item.adjustmentAmount || item.amount;
+    const action = result.intent === 'TRANSACTION_CANCEL' ? 'cancel' : 'adjust';
+    if (candidates.length > 1) {
+      return ctx.reply(
+        'Tìm thấy nhiều khoản phù hợp. Hãy chọn đúng giao dịch:',
+        Markup.inlineKeyboard(candidates.map((transaction) => [
+          Markup.button.callback(
+            `#${transaction.id} · ${formatMoney(transaction.amount)} · ${transaction.description.slice(0, 25)}`,
+            `tx:aichoose:${action}:${transaction.id}:${reduction || 0}`,
+          ),
+        ])),
+      );
+    }
+    const transaction = candidates[0];
+    const isPartialCancellation = action === 'cancel'
+      && Number(reduction) > 0
+      && Number(transaction.amount) > Number(reduction);
+    const newAmount = action === 'cancel' && !isPartialCancellation
+      ? null
+      : Number(transaction.amount) - Number(reduction);
+    return requestTransactionChange(ctx, {
+      transaction,
+      newAmount: newAmount > 0 ? newAmount : null,
+      newDescription: newAmount > 0 ? item.description : null,
+      reason: result.reply || 'Điều chỉnh theo yêu cầu bằng AI',
+      createPending,
+    });
   }
   if (result.intent === 'BUDGET_SET') {
     const ledger = requireWritableLedger(ctx);
@@ -195,13 +311,22 @@ function registerAiHandlers(bot, dependencies) {
     ai,
     pendingStore,
     handleLedgerTextInput,
+    handleFinanceTextInput,
   } = dependencies;
   const {
     createTransaction,
     createTransactions,
+    getTransactionById,
+    adjustTransaction,
     deleteTransaction,
   } = transactions;
-  const { upsertBudget, createDebt, getRecurringById } = finance;
+  const {
+    upsertBudget,
+    createDebt,
+    payDebt,
+    cancelDebt,
+    getRecurringById,
+  } = finance;
   const { getLedgerAccess } = ledgers;
   const { getUser, updatePreference } = users;
   const { createPending, consumePending, cancelPending } = pendingStore;
@@ -234,6 +359,7 @@ function registerAiHandlers(bot, dependencies) {
   bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
     if (await handleLedgerTextInput(ctx)) return;
+    if (await handleFinanceTextInput(ctx)) return;
     await ctx.sendChatAction('typing');
     try {
       const user = await getUser(ctx.from.id);
@@ -298,6 +424,61 @@ function registerAiHandlers(bot, dependencies) {
       await ctx.answerCbQuery('Đã lưu');
       return ctx.editMessageText(`✅ Đã lưu khoản công nợ #${saved.id}.`);
     }
+    if (payload.kind === 'debt_payment') {
+      const result = await payDebt({
+        userId: ctx.from.id,
+        ledgerId: access.id,
+        debtId: payload.debtId,
+        amount: payload.amount,
+        sourceKey: payload.sourceKey,
+      });
+      if (!result) {
+        return ctx.answerCbQuery('Khoản công nợ không còn mở.', { show_alert: true });
+      }
+      if (result.error === 'overpayment') {
+        return ctx.answerCbQuery(
+          `Chỉ còn ${formatMoney(result.remainingAmount)}. Hãy tạo lại thao tác.`,
+          { show_alert: true },
+        );
+      }
+      if (result.error === 'duplicate') {
+        return ctx.answerCbQuery('Thanh toán này đã được ghi trước đó.', { show_alert: true });
+      }
+      await ctx.answerCbQuery('Đã cập nhật công nợ');
+      return ctx.editMessageText(
+        `✅ Đã ghi thanh toán ${formatMoney(result.payment)} cho khoản #${result.id}.\nCòn lại: ${formatMoney(result.remaining_amount)}.`,
+      );
+    }
+    if (payload.kind === 'debt_cancel') {
+      const cancelled = await cancelDebt({
+        userId: ctx.from.id,
+        ledgerId: access.id,
+        debtId: payload.debtId,
+        reason: payload.reason,
+      });
+      if (!cancelled) {
+        return ctx.answerCbQuery('Không thể hủy: khoản không còn mở hoặc bạn không có quyền.', { show_alert: true });
+      }
+      await ctx.answerCbQuery('Đã hủy công nợ');
+      return ctx.editMessageText(`🚫 Đã hủy khoản công nợ #${cancelled.id}.`);
+    }
+    if (['transaction_cancel', 'transaction_adjust'].includes(payload.kind)) {
+      const changed = await adjustTransaction({
+        userId: ctx.from.id,
+        ledgerId: access.id,
+        transactionId: payload.transactionId,
+        newAmount: payload.kind === 'transaction_cancel' ? null : payload.newAmount,
+        newDescription: payload.newDescription,
+        reason: payload.reason,
+      });
+      if (!changed || changed.error) {
+        return ctx.answerCbQuery('Không thể cập nhật giao dịch hoặc bạn không có quyền.', { show_alert: true });
+      }
+      await ctx.answerCbQuery('Đã cập nhật');
+      return ctx.editMessageText(changed.action === 'cancel'
+        ? `🚫 Đã hủy giao dịch #${changed.id}. Báo cáo sẽ không còn tính khoản này.`
+        : `✅ Đã điều chỉnh #${changed.id}: ${formatMoney(changed.amount_before)} → ${formatMoney(changed.amount)}.`);
+    }
     if (payload.kind === 'budget') {
       const { month, year } = getCurrentMonth(config.timezone);
       const categoryId = payload.item.categoryId === 99 ? null : payload.item.categoryId;
@@ -325,6 +506,35 @@ function registerAiHandlers(bot, dependencies) {
     if (deleted) {
       await ctx.editMessageText(`↩️ Đã hoàn tác giao dịch #${deleted.id}: ${formatMoney(deleted.amount)}.`);
     }
+  });
+  bot.action(/^tx:aichoose:(cancel|adjust):(\d+):(\d+)$/, async (ctx) => {
+    const ledger = requireWritableLedger(ctx);
+    const [, action, transactionIdText, reductionText] = ctx.match;
+    const transaction = await getTransactionById({
+      ledgerId: ledger.id,
+      transactionId: Number(transactionIdText),
+    });
+    if (!transaction) {
+      return ctx.answerCbQuery('Giao dịch không còn tồn tại.', { show_alert: true });
+    }
+    if (ledger.role !== 'owner'
+      && String(transaction.created_by_user_id) !== String(ctx.from.id)) {
+      return ctx.answerCbQuery('Bạn chỉ có thể sửa giao dịch do mình tạo.', { show_alert: true });
+    }
+    await ctx.answerCbQuery();
+    const reduction = Number(reductionText);
+    const isPartialCancellation = action === 'cancel'
+      && reduction > 0
+      && Number(transaction.amount) > reduction;
+    const newAmount = action === 'cancel' && !isPartialCancellation
+      ? null
+      : Number(transaction.amount) - reduction;
+    return requestTransactionChange(ctx, {
+      transaction,
+      newAmount: newAmount > 0 ? newAmount : null,
+      reason: 'Điều chỉnh theo yêu cầu bằng AI',
+      createPending,
+    });
   });
   bot.action(/^ocr:(accept|decline)$/, async (ctx) => {
     const accepted = ctx.match[1] === 'accept';

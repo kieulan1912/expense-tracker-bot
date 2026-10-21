@@ -36,7 +36,11 @@ function createDatabase(config) {
       ADD COLUMN IF NOT EXISTS category_id SMALLINT NOT NULL DEFAULT 99,
       ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       ADD COLUMN IF NOT EXISTS source VARCHAR(20) NOT NULL DEFAULT 'command',
-      ADD COLUMN IF NOT EXISTS source_key VARCHAR(100)
+      ADD COLUMN IF NOT EXISTS source_key VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS counterparty_name VARCHAR(80),
+      ADD COLUMN IF NOT EXISTS status VARCHAR(12) NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'cancelled')),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
   `);
 
   // Dữ liệu tạo trước khi có occurred_at nhận thời điểm deploy làm giá trị
@@ -149,7 +153,24 @@ function createDatabase(config) {
 
   await pool.query(`
     ALTER TABLE debts
-      ADD COLUMN IF NOT EXISTS last_reminded_on DATE
+      ADD COLUMN IF NOT EXISTS last_reminded_on DATE,
+      ADD COLUMN IF NOT EXISTS created_by_user_id BIGINT,
+      ADD COLUMN IF NOT EXISTS cancelled_by_user_id BIGINT,
+      ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS cancellation_reason VARCHAR(160)
+  `);
+
+  await pool.query(`
+    UPDATE debts SET created_by_user_id = telegram_user_id
+    WHERE created_by_user_id IS NULL
+  `);
+  await pool.query(`
+    ALTER TABLE debts ALTER COLUMN created_by_user_id SET NOT NULL
+  `);
+  await pool.query('ALTER TABLE debts DROP CONSTRAINT IF EXISTS debts_status_check');
+  await pool.query(`
+    ALTER TABLE debts ADD CONSTRAINT debts_status_check
+    CHECK (status IN ('open', 'paid', 'cancelled'))
   `);
 
   await pool.query(`
@@ -162,8 +183,27 @@ function createDatabase(config) {
       id BIGSERIAL PRIMARY KEY,
       debt_id BIGINT NOT NULL REFERENCES debts(id) ON DELETE CASCADE,
       amount BIGINT NOT NULL CHECK (amount > 0),
+      created_by_user_id BIGINT,
+      source_key VARCHAR(100),
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE debt_payments
+      ADD COLUMN IF NOT EXISTS created_by_user_id BIGINT,
+      ADD COLUMN IF NOT EXISTS source_key VARCHAR(100)
+  `);
+  await pool.query(`
+    UPDATE debt_payments p SET created_by_user_id = d.created_by_user_id
+    FROM debts d WHERE p.debt_id = d.id AND p.created_by_user_id IS NULL
+  `);
+  await pool.query(`
+    ALTER TABLE debt_payments ALTER COLUMN created_by_user_id SET NOT NULL
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_debt_payments_source
+    ON debt_payments (debt_id, source_key) WHERE source_key IS NOT NULL
   `);
 
   await pool.query(`
@@ -397,6 +437,27 @@ function createDatabase(config) {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_recurring_ledger_active
     ON recurring_transactions (ledger_id, active, day_of_month)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS transaction_adjustments (
+      id BIGSERIAL PRIMARY KEY,
+      transaction_id BIGINT NOT NULL
+        REFERENCES financial_transactions(id) ON DELETE CASCADE,
+      ledger_id BIGINT NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+      actor_user_id BIGINT NOT NULL,
+      action VARCHAR(12) NOT NULL CHECK (action IN ('adjust', 'cancel')),
+      amount_before BIGINT NOT NULL CHECK (amount_before > 0),
+      amount_after BIGINT CHECK (amount_after > 0),
+      description_before TEXT NOT NULL,
+      description_after TEXT,
+      reason VARCHAR(160) NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_transaction_adjustments_transaction
+    ON transaction_adjustments (transaction_id, created_at DESC)
   `);
 
   await pool.query(`

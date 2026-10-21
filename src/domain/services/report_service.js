@@ -30,7 +30,12 @@ function formatMonthlyReport(
     lines.push('📥 KHOẢN THU', ...incomeRows.map((row) => `• ${row.category}: ${formatMoney(row.total)}`), '');
   }
   if (expenseRows.length) {
-    lines.push('📤 KHOẢN CHI', ...expenseRows.map((row) => `• ${row.category}: ${formatMoney(row.total)}`), '');
+    lines.push(
+      '📤 KHOẢN CHI',
+      ...expenseRows.map((row) => `• ${row.category}: ${formatMoney(row.total)}`),
+      `Tổng tiền đã chi: ${formatMoney(expense)}`,
+      '',
+    );
   }
   lines.push(
     `Tổng thu tháng ${month}/${year}: ${formatMoney(income)}`,

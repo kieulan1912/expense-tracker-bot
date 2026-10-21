@@ -1,4 +1,4 @@
-const { getCategoryName } = require('../../../utils/category');
+const { getCategoryName, normalizeForCategory } = require('../../../utils/category');
 
 function createTransactionRepository(pool) {
 
@@ -13,18 +13,19 @@ function mapTransaction(row) {
   };
 }
 
-async function createTransaction({ userId, ledgerId, type, amount, categoryId = 99, description, occurredAt = null, source = 'command', sourceKey = null }) {
+async function createTransaction({ userId, ledgerId, type, amount, categoryId = 99, description, counterpartyName = null, occurredAt = null, source = 'command', sourceKey = null }) {
   const result = await pool.query(
     `INSERT INTO financial_transactions (
        telegram_user_id, ledger_id, created_by_user_id, transaction_type,
-       amount, category, category_id, description, occurred_at, source, source_key
+       amount, category, category_id, description, counterparty_name,
+       occurred_at, source, source_key
      ) VALUES ($1, $2, $1, $3, $4, $5, $6, $7,
-       COALESCE($8, CURRENT_TIMESTAMP), $9, $10)
+       $8, COALESCE($9, CURRENT_TIMESTAMP), $10, $11)
      ON CONFLICT (ledger_id, source_key) WHERE source_key IS NOT NULL
      DO NOTHING
      RETURNING id, transaction_type, amount, category_id, description,
-       occurred_at, source, created_by_user_id`,
-    [userId, ledgerId, type, amount, getCategoryName(categoryId, type), categoryId, description, occurredAt, source, sourceKey],
+       counterparty_name, occurred_at, source, created_by_user_id`,
+    [userId, ledgerId, type, amount, getCategoryName(categoryId, type), categoryId, description, counterpartyName, occurredAt, source, sourceKey],
   );
   return mapTransaction(result.rows[0]);
 }
@@ -38,14 +39,15 @@ async function createTransactions({ userId, ledgerId, items, source = 'ai', sour
       const result = await client.query(
         `INSERT INTO financial_transactions (
            telegram_user_id, ledger_id, created_by_user_id, transaction_type,
-           amount, category, category_id, description, occurred_at, source, source_key
+           amount, category, category_id, description, counterparty_name,
+           occurred_at, source, source_key
          ) VALUES ($1, $2, $1, $3, $4, $5, $6, $7,
-           COALESCE($8, CURRENT_TIMESTAMP), $9, $10)
+           $8, COALESCE($9, CURRENT_TIMESTAMP), $10, $11)
          ON CONFLICT (ledger_id, source_key) WHERE source_key IS NOT NULL
          DO NOTHING
          RETURNING id, transaction_type, amount, category_id, description,
-           occurred_at, source, created_by_user_id`,
-        [userId, ledgerId, item.type, item.amount, getCategoryName(item.categoryId, item.type), item.categoryId, item.description, item.occurredAt || null, source, sourceKey ? `${sourceKey}:${index}` : null],
+           counterparty_name, occurred_at, source, created_by_user_id`,
+        [userId, ledgerId, item.type, item.amount, getCategoryName(item.categoryId, item.type), item.categoryId, item.description, item.personName || null, item.occurredAt || null, source, sourceKey ? `${sourceKey}:${index}` : null],
       );
       if (result.rows[0]) saved.push(mapTransaction(result.rows[0]));
     }
@@ -84,6 +86,7 @@ async function getMonthlySummary({ ledgerId, month, year, timezone }) {
          END AS normalized_category_id
        FROM financial_transactions
        WHERE ledger_id = $1
+         AND status = 'active'
          AND EXTRACT(MONTH FROM occurred_at AT TIME ZONE $4) = $2
          AND EXTRACT(YEAR FROM occurred_at AT TIME ZONE $4) = $3
      )
@@ -110,6 +113,7 @@ async function getMonthlyTransactions({ ledgerId, month, year, timezone }) {
      FROM financial_transactions t
      LEFT JOIN user_preferences u ON u.telegram_user_id = t.created_by_user_id
      WHERE t.ledger_id = $1
+       AND t.status = 'active'
        AND EXTRACT(MONTH FROM occurred_at AT TIME ZONE $4) = $2
        AND EXTRACT(YEAR FROM occurred_at AT TIME ZONE $4) = $3
      ORDER BY occurred_at DESC`,
@@ -143,6 +147,7 @@ async function getDailySummary({ ledgerId, date, timezone }) {
          END AS normalized_category_id
        FROM financial_transactions
        WHERE ledger_id = $1
+         AND status = 'active'
          AND (occurred_at AT TIME ZONE $3)::DATE = $2::DATE
      )
      SELECT transaction_type, normalized_category_id AS category_id,
@@ -169,25 +174,152 @@ async function getRecentTransactions({ ledgerId, limit, timezone }) {
      FROM financial_transactions t
      LEFT JOIN user_preferences u ON u.telegram_user_id = t.created_by_user_id
      WHERE t.ledger_id = $1
+       AND t.status = 'active'
      ORDER BY t.occurred_at DESC LIMIT $2`,
     [ledgerId, limit, timezone],
   );
   return result.rows.map(mapTransaction);
 }
 
-async function deleteTransaction({ userId, ledgerId, transactionId }) {
+async function searchTransactions({
+  ledgerId,
+  keyword = '',
+  transactionType = null,
+  categoryId = null,
+  amountMin = null,
+  amountMax = null,
+  dateFrom = null,
+  dateTo = null,
+  createdBy = '',
+  limit = 10,
+  timezone,
+}) {
+  // Lấy một tập ứng viên có giới hạn rồi chuẩn hóa dấu bằng JavaScript. Cách này
+  // không cần extension PostgreSQL `unaccent`, phù hợp với Neon/free plan.
+  const candidateLimit = Math.max(100, Math.min(500, limit * 25));
   const result = await pool.query(
-    `DELETE FROM financial_transactions
-     WHERE id = $1 AND ledger_id = $2
-       AND EXISTS (
-         SELECT 1 FROM ledger_members m
-         WHERE m.ledger_id = $2 AND m.telegram_user_id = $3
-           AND (m.role = 'owner' OR financial_transactions.created_by_user_id = $3)
-       )
-     RETURNING id, transaction_type, amount, category_id, description`,
-    [transactionId, ledgerId, userId],
+    `SELECT t.id, t.transaction_type, t.amount, t.category, t.category_id,
+       t.description, t.counterparty_name, t.created_by_user_id,
+       COALESCE(u.display_name, u.username, t.created_by_user_id::TEXT) AS created_by_name,
+       TO_CHAR(t.occurred_at AT TIME ZONE $8, 'DD/MM/YYYY HH24:MI') AS local_created_at
+     FROM financial_transactions t
+     LEFT JOIN user_preferences u ON u.telegram_user_id = t.created_by_user_id
+     WHERE t.ledger_id = $1
+       AND t.status = 'active'
+       AND ($2::TEXT IS NULL OR t.transaction_type = $2)
+       AND ($3::SMALLINT IS NULL OR t.category_id = $3)
+       AND ($4::BIGINT IS NULL OR t.amount >= $4)
+       AND ($5::BIGINT IS NULL OR t.amount <= $5)
+       AND ($6::DATE IS NULL OR (t.occurred_at AT TIME ZONE $8)::DATE >= $6)
+       AND ($7::DATE IS NULL OR (t.occurred_at AT TIME ZONE $8)::DATE <= $7)
+     ORDER BY t.occurred_at DESC
+     LIMIT $9`,
+    [
+      ledgerId, transactionType, categoryId, amountMin, amountMax,
+      dateFrom, dateTo, timezone, candidateLimit,
+    ],
+  );
+  const keywordTokens = normalizeForCategory(keyword).split(' ').filter(Boolean);
+  const creatorTokens = normalizeForCategory(createdBy).split(' ').filter(Boolean);
+  return result.rows.filter((row) => {
+    const searchableText = normalizeForCategory([
+      row.description,
+      row.category,
+      row.counterparty_name,
+    ].filter(Boolean).join(' '));
+    const creatorText = normalizeForCategory(row.created_by_name);
+    return keywordTokens.every((token) => searchableText.includes(token))
+      && creatorTokens.every((token) => creatorText.includes(token));
+  }).slice(0, limit).map(mapTransaction);
+}
+
+async function getTransactionById({ ledgerId, transactionId }) {
+  const result = await pool.query(
+    `SELECT * FROM financial_transactions
+     WHERE id = $1 AND ledger_id = $2 AND status = 'active'`,
+    [transactionId, ledgerId],
   );
   return mapTransaction(result.rows[0]);
+}
+
+async function findRecentExpenseCandidates({ ledgerId, personName = '', amount = null, limit = 10 }) {
+  const result = await pool.query(
+    `SELECT * FROM financial_transactions
+     WHERE ledger_id = $1 AND status = 'active' AND transaction_type = 'expense'
+       AND occurred_at >= CURRENT_TIMESTAMP - INTERVAL '90 days'
+       AND ($2::BIGINT IS NULL OR amount >= $2)
+     ORDER BY occurred_at DESC`,
+    [ledgerId, amount],
+  );
+  const target = normalizeForCategory(personName);
+  return result.rows
+    .filter((row) => !target || normalizeForCategory(
+      row.counterparty_name || row.description,
+    ).includes(target))
+    .slice(0, limit)
+    .map(mapTransaction);
+}
+
+async function adjustTransaction({
+  userId,
+  ledgerId,
+  transactionId,
+  newAmount = null,
+  newDescription = null,
+  reason = '',
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const locked = await client.query(
+      `SELECT t.* FROM financial_transactions t
+       WHERE t.id = $1 AND t.ledger_id = $2 AND t.status = 'active'
+         AND EXISTS (
+           SELECT 1 FROM ledger_members m
+           WHERE m.ledger_id = t.ledger_id AND m.telegram_user_id = $3
+             AND (m.role = 'owner' OR t.created_by_user_id = $3)
+         ) FOR UPDATE OF t`,
+      [transactionId, ledgerId, userId],
+    );
+    const transaction = locked.rows[0];
+    if (!transaction) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    const action = newAmount === null ? 'cancel' : 'adjust';
+    if (newAmount !== null && (!Number.isSafeInteger(newAmount) || newAmount <= 0)) {
+      await client.query('ROLLBACK');
+      return { error: 'invalid_amount', transaction };
+    }
+    await client.query(
+      `INSERT INTO transaction_adjustments (
+         transaction_id, ledger_id, actor_user_id, action, amount_before,
+         amount_after, description_before, description_after, reason
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [transactionId, ledgerId, userId, action, transaction.amount,
+        newAmount, transaction.description, newDescription, reason.slice(0, 160)],
+    );
+    const result = await client.query(
+      `UPDATE financial_transactions SET
+         amount = COALESCE($2, amount),
+         description = COALESCE($3, description),
+         status = CASE WHEN $2::BIGINT IS NULL THEN 'cancelled' ELSE 'active' END,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 RETURNING *`,
+      [transactionId, newAmount, newDescription],
+    );
+    await client.query('COMMIT');
+    return { ...mapTransaction(result.rows[0]), action, amount_before: transaction.amount };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteTransaction({ userId, ledgerId, transactionId, reason = 'Hoàn tác giao dịch' }) {
+  return adjustTransaction({ userId, ledgerId, transactionId, reason });
 }
 
 async function getSpendingBetween({ ledgerId, start, end, categoryId = null }) {
@@ -195,6 +327,7 @@ async function getSpendingBetween({ ledgerId, start, end, categoryId = null }) {
     `SELECT COALESCE(SUM(amount), 0)::BIGINT AS total
      FROM financial_transactions
      WHERE ledger_id = $1 AND transaction_type = 'expense'
+       AND status = 'active'
        AND occurred_at >= $2 AND occurred_at < $3
        AND ($4::SMALLINT IS NULL OR category_id = $4)`,
     [ledgerId, start, end, categoryId],
@@ -239,6 +372,10 @@ async function deleteAllUserData(userId) {
   getMonthlyTransactions,
   getDailySummary,
   getRecentTransactions,
+  searchTransactions,
+  getTransactionById,
+  findRecentExpenseCandidates,
+  adjustTransaction,
   deleteTransaction,
   getSpendingBetween,
   deleteAllUserData,

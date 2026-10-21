@@ -2,6 +2,7 @@ const TTL_MS = 10 * 60 * 1000;
 
 function createPendingStore() {
   const pending = new Map();
+  const inputs = new Map();
 
 function createPending(userId, payload) {
   const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -23,7 +24,30 @@ function cancelPending(token, userId) {
   return true;
 }
 
-  return { createPending, consumePending, cancelPending };
+function setInput(userId, payload) {
+  inputs.set(String(userId), { payload, expiresAt: Date.now() + TTL_MS });
+}
+
+function consumeInput(userId) {
+  const key = String(userId);
+  const entry = inputs.get(key);
+  inputs.delete(key);
+  if (!entry || entry.expiresAt < Date.now()) return null;
+  return entry.payload;
+}
+
+function clearInput(userId) {
+  return inputs.delete(String(userId));
+}
+
+  return {
+    createPending,
+    consumePending,
+    cancelPending,
+    setInput,
+    consumeInput,
+    clearInput,
+  };
 }
 
 module.exports = { createPendingStore };
