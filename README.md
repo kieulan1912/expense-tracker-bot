@@ -98,8 +98,8 @@ Các biến tùy chọn và giá trị mặc định:
 
 ```env
 ALLOWED_USER_IDS=
-GEMINI_MODEL=gemini-3.5-flash-lite
-GEMINI_FALLBACK_MODELS=gemini-3.8-flash
+GEMINI_MODEL=gemini-2.5-flash-lite
+GEMINI_FALLBACK_MODELS=gemini-3.5-flash-lite,gemini-3.8-flash
 AI_ENABLED=true
 AI_TEXT_DAILY_LIMIT_PER_USER=150
 AI_IMAGE_DAILY_LIMIT_PER_USER=10

@@ -77,7 +77,20 @@ target_id là ID được người dùng nói rõ; nếu không có thì null. V
 Giọng mặc định hài hước nhưng tuyệt đối không trêu chọc sức khỏe, giáo dục, gia đình hoặc từ thiện. reply tối đa 180 ký tự. description tối đa 40 ký tự.
 Ngày hiện tại và múi giờ được cung cấp trong input. Nếu không nói ngày, occurred_at là null. confidence từ 0 đến 1. OCR và thông tin mơ hồ luôn needs_confirmation=true.`;
 
-function createGeminiAiGateway({ config, pool }) {
+const GEMINI_REQUEST_TIMEOUT_MS = 12_000;
+
+function isTemporaryProviderError(error) {
+  return error?.status === 429
+    || error?.status >= 500
+    || ['TimeoutError', 'AbortError', 'TypeError'].includes(error?.name)
+    || /(?:timeout|timed out|aborted due to timeout)/i.test(String(error?.message || ''));
+}
+
+function createGeminiAiGateway({
+  config,
+  pool,
+  fetchImpl = fetch,
+}) {
 async function reserveUsage(userId, requestType) {
   const perUserLimit = requestType === 'image'
     ? config.aiImageDailyLimit
@@ -110,12 +123,24 @@ async function reserveUsage(userId, requestType) {
       [row.usage_date, userId, requestType],
     );
     await client.query('COMMIT');
+    return row.usage_date;
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
     client.release();
   }
+}
+
+async function refundUsage(userId, requestType, usageDate) {
+  await pool.query(
+    `UPDATE ai_usage_daily
+     SET request_count = GREATEST(request_count - 1, 0)
+     WHERE usage_date = $1
+       AND telegram_user_id = $2
+       AND request_type = $3`,
+    [usageDate, userId, requestType],
+  );
 }
 
 async function getUsageStatus(userId) {
@@ -149,43 +174,42 @@ async function requestGemini(contents) {
   let lastError;
   const models = [...new Set([config.geminiModel, ...config.geminiFallbackModels])];
 
-  for (const modelName of models) {
+  for (const [modelIndex, modelName] of models.entries()) {
     const model = encodeURIComponent(modelName);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiApiKey },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(15_000),
-        });
-        if (!response.ok) {
-          const providerBody = await response.json().catch(() => ({}));
-          const providerMessage = String(providerBody.error?.message || '')
-            .replace(/\s+/g, ' ')
-            .slice(0, 300);
-          const error = new Error(
-            `Gemini model ${modelName} HTTP ${response.status}${providerMessage ? `: ${providerMessage}` : ''}`,
-          );
-          error.status = response.status;
-          error.retryable = response.status === 429 || response.status >= 500;
-          throw error;
-        }
-        const payload = await response.json();
-        const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) throw new Error(`Gemini model ${modelName} không trả về nội dung`);
-        return validateResult(JSON.parse(text));
-      } catch (error) {
-        lastError = error;
-        if (error.status === 404) {
-          console.warn(`Gemini model không khả dụng, đang fallback: ${modelName}`);
-          break;
-        }
-        if (attempt === 0 && (error.retryable || error.name === 'TimeoutError')) continue;
+    try {
+      const response = await fetchImpl(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiApiKey },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        const providerBody = await response.json().catch(() => ({}));
+        const providerMessage = String(providerBody.error?.message || '')
+          .replace(/\s+/g, ' ')
+          .slice(0, 300);
+        const error = new Error(
+          `Gemini model ${modelName} HTTP ${response.status}${providerMessage ? `: ${providerMessage}` : ''}`,
+        );
+        error.status = response.status;
         throw error;
       }
+      const payload = await response.json();
+      const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error(`Gemini model ${modelName} không trả về nội dung`);
+      return validateResult(JSON.parse(text));
+    } catch (error) {
+      lastError = error;
+      const hasFallback = modelIndex < models.length - 1;
+      if (hasFallback && (error.status === 404 || isTemporaryProviderError(error))) {
+        console.warn(
+          `Gemini model ${modelName} thất bại (${error.status || error.name || 'network'}), đang chuyển sang ${models[modelIndex + 1]}`,
+        );
+        continue;
+      }
+      throw error;
     }
   }
   throw lastError;
@@ -199,9 +223,16 @@ function assertAiConfigured() {
 
 async function analyzeText({ userId, text, timezone, personality = 'funny' }) {
   assertAiConfigured();
-  await reserveUsage(userId, 'text');
-  const now = new Date().toISOString();
-  return requestGemini([{ text: `Múi giờ: ${timezone}. Hiện tại: ${now}. Phong cách: ${personality}. Dữ liệu người dùng: <input>${text.slice(0, 1000)}</input>` }]);
+  const usageDate = await reserveUsage(userId, 'text');
+  try {
+    const now = new Date().toISOString();
+    return await requestGemini([{ text: `Múi giờ: ${timezone}. Hiện tại: ${now}. Phong cách: ${personality}. Dữ liệu người dùng: <input>${text.slice(0, 1000)}</input>` }]);
+  } catch (error) {
+    await refundUsage(userId, 'text', usageDate).catch((refundError) => {
+      console.error('Không thể hoàn quota AI text:', refundError.message);
+    });
+    throw error;
+  }
 }
 
 async function analyzeImage({ userId, imageBuffer, mimeType, timezone }) {
@@ -214,11 +245,18 @@ async function analyzeImage({ userId, imageBuffer, mimeType, timezone }) {
       `Ảnh quá lớn. Vui lòng gửi ảnh dưới ${config.ocrMaxImageMb} MB.`,
     );
   }
-  await reserveUsage(userId, 'image');
-  return requestGemini([
-    { inlineData: { mimeType, data: imageBuffer.toString('base64') } },
-    { text: `Múi giờ: ${timezone}. Hiện tại: ${new Date().toISOString()}. Đọc hóa đơn hoặc ảnh chuyển khoản. Không trả số tài khoản hay dữ liệu nhạy cảm.` },
-  ]);
+  const usageDate = await reserveUsage(userId, 'image');
+  try {
+    return await requestGemini([
+      { inlineData: { mimeType, data: imageBuffer.toString('base64') } },
+      { text: `Múi giờ: ${timezone}. Hiện tại: ${new Date().toISOString()}. Đọc hóa đơn hoặc ảnh chuyển khoản. Không trả số tài khoản hay dữ liệu nhạy cảm.` },
+    ]);
+  } catch (error) {
+    await refundUsage(userId, 'image', usageDate).catch((refundError) => {
+      console.error('Không thể hoàn quota AI image:', refundError.message);
+    });
+    throw error;
+  }
 }
 
   return { analyzeText, analyzeImage, getUsageStatus };
