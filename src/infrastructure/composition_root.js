@@ -11,6 +11,7 @@ const { createUserRepository } = require('../data/postgres/repositories/user_rep
 const { createGeminiAiGateway } = require('../data/gateways/gemini_ai_gateway');
 const { createUseCases } = require('../domain/use_cases/create_use_cases');
 const { createPendingStore } = require('./stores/pending_store');
+const { createConversationStore } = require('./stores/conversation_store');
 const { createHealthServer } = require('./http/health_server');
 const { createScheduler } = require('./scheduler/scheduler');
 const { createBot } = require('../presentation/telegram/create_bot');
@@ -30,7 +31,10 @@ function createApplication({ telegramBot = null } = {}) {
     aiGateway,
   });
   const pendingStore = createPendingStore();
-  const bot = createBot({ config, useCases, pendingStore, bot: telegramBot });
+  const conversationStore = createConversationStore();
+  const bot = createBot({
+    config, useCases, pendingStore, conversationStore, bot: telegramBot,
+  });
   const server = createHealthServer({
     checkReadiness: () => database.pool.query('SELECT 1'),
   });

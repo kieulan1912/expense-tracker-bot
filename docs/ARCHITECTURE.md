@@ -37,7 +37,7 @@ src/
 │   ├── config.js
 │   ├── http/health_server.js
 │   ├── scheduler/scheduler.js
-│   └── stores/pending_store.js
+│   └── stores/                  # Pending confirmations + conversation context
 ├── utils/
 └── index.js
 ```
@@ -67,6 +67,17 @@ Infrastructure composition root tạo và nối tất cả dependency.
 - Tìm kiếm tự nhiên được AI chuẩn hóa thành filter DTO; repository luôn áp
   `ledger_id`, trạng thái active và các điều kiện SQL trước khi so khớp từ khóa
   đã bỏ dấu. Dữ liệu giao dịch không được đưa vào prompt Gemini.
+- Yêu cầu báo cáo tự nhiên được AI chuẩn hóa thành tháng/năm. Presentation lấy
+  đúng kỳ đó rồi gọi summary use case; số liệu vẫn được tính trong PostgreSQL.
+  Conversation store chỉ giữ kỳ báo cáo gần nhất theo user và ledger trong
+  bộ nhớ 30 phút, không lưu nội dung giao dịch hay kết quả tài chính.
+- Các câu báo cáo rõ ràng được `local_financial_query.js` định tuyến trước khi
+  gọi Gemini. Chống trùng, nhận diện chu kỳ, dự báo ngân sách và tổng kết tuần
+  đều dùng rule/SQL; Gemini chỉ xử lý ngôn ngữ tự nhiên phức tạp và OCR.
+- Luồng `SPENDING_INSIGHT` lấy hai tháng dữ liệu trong repository, tính tổng,
+  thay đổi, category drivers và top transactions ở server. Chỉ DTO tổng hợp
+  nhỏ được gửi Gemini để diễn đạt; phản hồi luôn kèm formatter local làm số liệu
+  kiểm chứng. Scope `child` được nhận diện từ description và không sửa category.
 
 JavaScript không có interface native nên contract được biểu diễn bằng danh sách
 method bất biến và kiểm tra runtime. Cách này không cần DI framework nhưng vẫn
@@ -79,6 +90,8 @@ giữ dependency inversion rõ ràng.
 - Mỗi repository là factory nhận `pool`; không tự đọc singleton database.
 - `gemini_ai_gateway.js` nhận `config` và `pool` từ ngoài, quản lý quota và gọi
   Gemini. Validation response được đưa vào domain service thuần.
+- `bank_statement.js` parse CSV/XLSX trong RAM bằng giới hạn kích thước/số dòng;
+  chỉ DTO giao dịch đã chuẩn hóa mới đi qua use case để lưu PostgreSQL.
 
 Các kiểm tra quyền quan trọng vẫn tồn tại trong SQL/repository để callback cũ
 hoặc request giả mạo không thể bỏ qua membership/role.
@@ -103,6 +116,8 @@ hoặc request giả mạo không thể bỏ qua membership/role.
 - Health server nhận callback readiness thay vì import pool.
 - Scheduler nhận use cases thay vì import PostgreSQL repository.
 - Pending confirmation store là instance được inject, không còn global singleton.
+- Scheduler chạy một lần lúc 20:00, gửi daily summary, weekly insights vào Chủ
+  nhật và báo cáo tháng ở ngày cuối tháng; không polling liên tục.
 
 ## Dependency rules
 

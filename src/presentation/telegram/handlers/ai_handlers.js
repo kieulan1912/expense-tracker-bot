@@ -4,8 +4,21 @@ const { formatMoney } = require('../../../utils/amount');
 const { getCategoryName } = require('../../../utils/category');
 const { getCurrentMonth, getCurrentDateParts } = require('../../../utils/month');
 const { resolveImageMime, looksLikeSupportedImage } = require('../../../utils/image');
-const { formatMonthlyReport } = require('../../../domain/services/report_service');
+const {
+  formatMonthlyReport,
+  formatSpendingInsights,
+} = require('../../../domain/services/report_service');
+const {
+  parseReportPeriod,
+  parseSpendingInsight,
+} = require('../../../domain/services/local_financial_query');
+const { parseBankStatement } = require('../../../utils/bank_statement');
 const { requireWritableLedger } = require('../context');
+const {
+  findDuplicates,
+  duplicateText,
+  suggestRecurring,
+} = require('../transaction_automation');
 const {
   debtCandidateKeyboard,
   requestDebtPaymentConfirmation,
@@ -34,6 +47,7 @@ async function saveAiResult(ctx, result, source, dependencies) {
     searchTransactions,
     getTransactionById,
     findRecentExpenseCandidates,
+    getSpendingInsights,
   } = transactions;
   const { createPending } = pendingStore;
   if (result.intent === 'HISTORY_REQ') {
@@ -56,8 +70,51 @@ async function saveAiResult(ctx, result, source, dependencies) {
     if (!rows.length) return ctx.reply('📭 Không tìm thấy giao dịch phù hợp với các điều kiện đó.');
     return ctx.reply(formatRecentTransactions(rows, `🔎 TÌM THẤY ${rows.length} GIAO DỊCH`));
   }
+  if (result.intent === 'SPENDING_INSIGHT') {
+    const currentPeriod = getCurrentMonth(config.timezone);
+    const month = result.reportPeriod?.month || currentPeriod.month;
+    const year = result.reportPeriod?.year || currentPeriod.year;
+    const scope = result.insightScope === 'child' ? 'child' : 'all';
+    dependencies.conversationStore?.setReportPeriod(
+      ctx.from.id,
+      ctx.state.ledger.id,
+      { month, year },
+    );
+    const insights = await getSpendingInsights({
+      ledgerId: ctx.state.ledger.id,
+      month,
+      year,
+      timezone: config.timezone,
+      scope,
+    });
+    const verifiedSummary = formatSpendingInsights(insights);
+    if (!insights.transactionCount) return ctx.reply(verifiedSummary);
+    let narrative = '';
+    try {
+      const user = await dependencies.users.getUser(ctx.from.id);
+      narrative = await dependencies.ai.explainSpendingInsights({
+        userId: ctx.from.id,
+        question: ctx.message?.text || '',
+        insights,
+        personality: user?.personality,
+      });
+    } catch (error) {
+      console.error('AI spending insight error:', error.message);
+    }
+    return ctx.reply([
+      verifiedSummary,
+      narrative ? `\n💡 NHẬN ĐỊNH\n${narrative}` : '',
+    ].filter(Boolean).join('\n'));
+  }
   if (result.intent === 'REPORT_REQ') {
-    const { month, year } = getCurrentMonth(config.timezone);
+    const currentPeriod = getCurrentMonth(config.timezone);
+    const month = result.reportPeriod?.month || currentPeriod.month;
+    const year = result.reportPeriod?.year || currentPeriod.year;
+    dependencies.conversationStore?.setReportPeriod(
+      ctx.from.id,
+      ctx.state.ledger.id,
+      { month, year },
+    );
     const reportParams = {
       ledgerId: ctx.state.ledger.id, month, year, timezone: config.timezone,
     };
@@ -66,10 +123,34 @@ async function saveAiResult(ctx, result, source, dependencies) {
       finance.getBudgetStatus(reportParams),
     ]);
     const asOfDateParts = getCurrentDateParts(config.timezone);
-    if (!rows.length) return ctx.reply(`📭 Chưa có giao dịch nào trong tháng ${month}/${year}.`);
+    const reportRows = rows.filter((row) =>
+      (!result.reportPeriod?.transactionType
+        || row.transaction_type === result.reportPeriod.transactionType)
+      && (result.reportPeriod?.categoryId === null
+        || result.reportPeriod?.categoryId === undefined
+        || Number(row.category_id) === result.reportPeriod.categoryId));
+    if (!reportRows.length) {
+      return ctx.reply(`📭 Không có giao dịch phù hợp trong tháng ${month}/${year}.`);
+    }
+    const isFilteredReport = Boolean(
+      result.reportPeriod?.transactionType || result.reportPeriod?.categoryId,
+    );
+    const scopeLabel = [
+      result.reportPeriod?.transactionType === 'expense' ? 'khoản chi' : '',
+      result.reportPeriod?.transactionType === 'income' ? 'khoản thu' : '',
+      result.reportPeriod?.categoryId
+        ? getCategoryName(result.reportPeriod.categoryId, result.reportPeriod.transactionType || 'expense')
+        : '',
+    ].filter(Boolean).join(' · ');
     return ctx.reply(
       formatMonthlyReport(
-        rows, month, year, ctx.state.ledger.name, budgetRows, asOfDateParts,
+        reportRows,
+        month,
+        year,
+        ctx.state.ledger.name,
+        isFilteredReport ? [] : budgetRows,
+        asOfDateParts,
+        scopeLabel,
       ),
       monthlyReportKeyboard(ctx.state.ledger.id, month, year),
     );
@@ -105,6 +186,17 @@ async function saveAiResult(ctx, result, source, dependencies) {
       ]));
     }
     const sourceKey = `telegram:${ctx.chat.id}:${ctx.message?.message_id || ctx.update.update_id}`;
+    const duplicates = await findDuplicates(transactions, ledger.id, result.items);
+    if (duplicates.length) {
+      const token = createPending(ctx.from.id, {
+        kind: 'transactions', ledgerId: ledger.id, items: result.items,
+        source, sourceKey, duplicateConfirmed: true,
+      });
+      return ctx.reply(duplicateText(duplicates), Markup.inlineKeyboard([
+        Markup.button.callback('✅ Vẫn lưu', `pending:save:${token}`),
+        Markup.button.callback('❌ Không lưu', `pending:cancel:${token}`),
+      ]));
+    }
     const saved = await createTransactions({
       userId: ctx.from.id,
       ledgerId: ledger.id,
@@ -116,7 +208,8 @@ async function saveAiResult(ctx, result, source, dependencies) {
     const warning = result.items.some((item) => item.type === 'expense')
       ? await getBudgetWarning(ledger.id)
       : '';
-    return sendSaved(ctx, saved, [result.reply, warning].filter(Boolean).join('\n'), ledger);
+    await sendSaved(ctx, saved, [result.reply, warning].filter(Boolean).join('\n'), ledger);
+    return suggestRecurring(ctx, transactions, saved, ledger.id);
   }
   if (result.intent === 'DEBT_ADD' && result.items[0]?.personName && result.items[0]?.debtType) {
     const ledger = requireWritableLedger(ctx);
@@ -301,6 +394,44 @@ async function handleOcrImage(
   return saveAiResult(ctx, result, 'ocr', dependencies);
 }
 
+async function downloadTelegramFile(ctx, fileId, timeout = 20_000) {
+  const link = await ctx.telegram.getFileLink(fileId);
+  const response = await fetch(link, { signal: AbortSignal.timeout(timeout) });
+  if (!response.ok) throw new Error(`Không tải được file Telegram: ${response.status}`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function handleBankStatement(ctx, document, dependencies) {
+  const { pendingStore } = dependencies;
+  const ledger = requireWritableLedger(ctx);
+  if (document.file_size && document.file_size > 5 * 1024 * 1024) {
+    throw new InputError('Sao kê quá lớn. Vui lòng gửi file dưới 5 MB.');
+  }
+  await ctx.reply('📄 Đang đọc sao kê cục bộ…');
+  const buffer = await downloadTelegramFile(ctx, document.file_id);
+  const items = parseBankStatement(buffer, document.file_name);
+  const totalIncome = items.filter((item) => item.type === 'income')
+    .reduce((sum, item) => sum + item.amount, 0);
+  const totalExpense = items.filter((item) => item.type === 'expense')
+    .reduce((sum, item) => sum + item.amount, 0);
+  const token = pendingStore.createPending(ctx.from.id, {
+    kind: 'transactions', ledgerId: ledger.id, items, source: 'bank_import',
+    sourceKey: `telegram:bank:${ctx.chat.id}:${document.file_unique_id || ctx.message.message_id}`,
+  });
+  const preview = items.slice(0, 8).map((item, index) =>
+    `${index + 1}. ${item.type === 'expense' ? '📤' : '📥'} ${formatMoney(item.amount)} · ${getCategoryName(item.categoryId, item.type)}\n   ${item.description}`);
+  return ctx.reply([
+    `🔎 Đã nhận diện ${items.length} giao dịch`,
+    `Tổng thu: ${formatMoney(totalIncome)} · Tổng chi: ${formatMoney(totalExpense)}`,
+    '', ...preview,
+    ...(items.length > preview.length ? [`… và ${items.length - preview.length} dòng khác`] : []),
+    '', 'Kiểm tra preview rồi xác nhận lưu vào sổ.',
+  ].join('\n'), Markup.inlineKeyboard([
+    Markup.button.callback(`✅ Lưu ${items.length} dòng`, `pending:save:${token}`),
+    Markup.button.callback('❌ Hủy', `pending:cancel:${token}`),
+  ]));
+}
+
 function registerAiHandlers(bot, dependencies) {
   const {
     config,
@@ -310,6 +441,8 @@ function registerAiHandlers(bot, dependencies) {
     users,
     ai,
     pendingStore,
+    conversationStore,
+    getBudgetWarning,
     handleLedgerTextInput,
     handleFinanceTextInput,
   } = dependencies;
@@ -342,6 +475,10 @@ function registerAiHandlers(bot, dependencies) {
   });
   bot.on('document', async (ctx) => {
     const document = ctx.message.document;
+    if (/\.(?:csv|xlsx)$/i.test(document.file_name || '')) {
+      await handleBankStatement(ctx, document, dependencies);
+      return;
+    }
     if (!looksLikeSupportedImage({
       mimeType: document.mime_type,
       filename: document.file_name,
@@ -363,12 +500,27 @@ function registerAiHandlers(bot, dependencies) {
     await ctx.sendChatAction('typing');
     try {
       const user = await getUser(ctx.from.id);
-      const result = await ai.analyzeText({
-        userId: ctx.from.id,
-        text: ctx.message.text,
-        timezone: config.timezone,
-        personality: user?.personality,
-      });
+      const conversationContext = {
+        lastReportPeriod: conversationStore?.getReportPeriod(
+          ctx.from.id,
+          ctx.state.ledger.id,
+        ) || null,
+      };
+      const result = parseSpendingInsight(
+        ctx.message.text,
+        config.timezone,
+        conversationContext.lastReportPeriod,
+      ) || parseReportPeriod(
+        ctx.message.text,
+        config.timezone,
+        conversationContext.lastReportPeriod,
+      ) || await ai.analyzeText({
+          userId: ctx.from.id,
+          text: ctx.message.text,
+          timezone: config.timezone,
+          personality: user?.personality,
+          conversationContext,
+        });
       await saveAiResult(ctx, result, 'ai', dependencies);
     } catch (error) {
       if (error instanceof InputError) throw error;
@@ -400,6 +552,20 @@ function registerAiHandlers(bot, dependencies) {
       return ctx.answerCbQuery('Bạn không còn quyền ghi vào sổ này.', { show_alert: true });
     }
     if (payload.kind === 'transactions') {
+      if (!payload.duplicateConfirmed) {
+        const duplicates = await findDuplicates(transactions, access.id, payload.items);
+        if (duplicates.length) {
+          const nextToken = createPending(ctx.from.id, {
+            ...payload,
+            duplicateConfirmed: true,
+          });
+          await ctx.answerCbQuery('Phát hiện khoản có thể bị trùng');
+          return ctx.editMessageText(duplicateText(duplicates), Markup.inlineKeyboard([
+            Markup.button.callback('✅ Vẫn lưu', `pending:save:${nextToken}`),
+            Markup.button.callback('❌ Không lưu', `pending:cancel:${nextToken}`),
+          ]));
+        }
+      }
       const saved = await createTransactions({
         userId: ctx.from.id,
         ledgerId: access.id,
@@ -409,7 +575,14 @@ function registerAiHandlers(bot, dependencies) {
       });
       await ctx.answerCbQuery('Đã lưu');
       if (!saved.length) return ctx.editMessageText('✅ Yêu cầu này đã được lưu trước đó.');
-      return ctx.editMessageText(`✅ Đã lưu ${saved.length} giao dịch: ${saved.map((item) => `#${item.id}`).join(', ')}.`);
+      const warning = getBudgetWarning && payload.items.some((item) => item.type === 'expense')
+        ? await getBudgetWarning(access.id)
+        : '';
+      await ctx.editMessageText([
+        `✅ Đã lưu ${saved.length} giao dịch: ${saved.map((item) => `#${item.id}`).join(', ')}.`,
+        warning,
+      ].filter(Boolean).join('\n\n'));
+      return suggestRecurring(ctx, transactions, saved, access.id);
     }
     if (payload.kind === 'debt') {
       const item = payload.item;
@@ -573,6 +746,35 @@ function registerAiHandlers(bot, dependencies) {
     if (!saved) return ctx.answerCbQuery('Kỳ này đã được ghi trước đó.', { show_alert: true });
     await ctx.answerCbQuery('Đã ghi');
     return ctx.editMessageText(`✅ Đã ghi giao dịch định kỳ #${saved.id}: ${formatMoney(saved.amount)}.`);
+  });
+  bot.action(/^recurring:(suggest|dismiss):(\d+)$/, async (ctx) => {
+    const [, action, transactionIdText] = ctx.match;
+    if (action === 'dismiss') {
+      await ctx.answerCbQuery('Đã bỏ qua');
+      return ctx.editMessageText('⏭ Đã bỏ qua gợi ý định kỳ.');
+    }
+    const ledger = requireWritableLedger(ctx);
+    const transaction = await getTransactionById({
+      ledgerId: ledger.id,
+      transactionId: Number(transactionIdText),
+    });
+    if (!transaction) return ctx.answerCbQuery('Giao dịch không còn tồn tại.', { show_alert: true });
+    const candidate = await transactions.detectRecurringCandidate({
+      ledgerId: ledger.id,
+      transactionId: transaction.id,
+    });
+    if (!candidate) return ctx.answerCbQuery('Định kỳ này đã tồn tại hoặc mẫu không còn phù hợp.', { show_alert: true });
+    const recurring = await finance.createRecurring({
+      userId: ctx.from.id,
+      ledgerId: ledger.id,
+      type: candidate.type,
+      amount: candidate.amount,
+      categoryId: candidate.categoryId,
+      description: candidate.description,
+      dayOfMonth: candidate.dayOfMonth,
+    });
+    await ctx.answerCbQuery('Đã tạo định kỳ');
+    return ctx.editMessageText(`✅ Đã tạo định kỳ #${recurring.id}, nhắc khoảng ngày ${candidate.dayOfMonth} hằng tháng.`);
   });
 }
 

@@ -10,7 +10,13 @@ const {
 const { registerMenuHandlers } = require('./handlers/menu_handlers');
 const { registerAiHandlers } = require('./handlers/ai_handlers');
 
-function createBot({ config, useCases, pendingStore, bot: providedBot = null }) {
+function createBot({
+  config,
+  useCases,
+  pendingStore,
+  conversationStore,
+  bot: providedBot = null,
+}) {
   const bot = providedBot || new Telegraf(config.telegramBotToken);
   const context = createContextMiddleware({
     config,
@@ -33,6 +39,7 @@ function createBot({ config, useCases, pendingStore, bot: providedBot = null }) 
     ledgers: useCases.ledgers,
     users: useCases.users,
     pendingStore,
+    conversationStore,
     getBudgetWarning,
   });
   registerMenuHandlers(bot, {
@@ -42,6 +49,7 @@ function createBot({ config, useCases, pendingStore, bot: providedBot = null }) 
     users: useCases.users,
     ai: useCases.ai,
     forgetUser: context.forgetUser,
+    conversationStore,
   });
   registerAiHandlers(bot, {
     config,
@@ -51,6 +59,7 @@ function createBot({ config, useCases, pendingStore, bot: providedBot = null }) 
     users: useCases.users,
     ai: useCases.ai,
     pendingStore,
+    conversationStore,
     getBudgetWarning,
     handleLedgerTextInput,
     handleFinanceTextInput,

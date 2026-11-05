@@ -18,6 +18,10 @@ const {
 } = require('../../../domain/services/report_service');
 const { requireWritableLedger } = require('../context');
 const {
+  duplicateText,
+  suggestRecurring,
+} = require('../transaction_automation');
+const {
   helpMessage,
   funnyComment,
   sendSaved,
@@ -52,6 +56,16 @@ function createBudgetWarning({ config, finance }) {
       warnings.push(ratio >= 1
         ? `🚨 Bạn đã vượt ${label} ${formatMoney(Number(row.spent) - Number(row.amount))}.`
         : `⚠️ Bạn đã dùng ${Math.round(ratio * 100)}% ${label}.`);
+      continue;
+    }
+    for (const row of rows) {
+      const projected = Number(row.projected_spent || row.spent);
+      const budget = Number(row.amount);
+      if (projected <= budget || Number(row.spent) >= budget) continue;
+      const label = row.category_id === null ? 'tổng ngân sách' : getCategoryName(row.category_id);
+      warnings.push(
+        `📈 Nếu giữ nhịp này, ${label} có thể vượt khoảng ${formatMoney(projected - budget)} vào cuối tháng.`,
+      );
     }
     return warnings.join('\n');
   };
@@ -79,6 +93,7 @@ function registerFinanceHandlers(bot, {
   ledgers,
   users,
   pendingStore,
+  conversationStore,
   getBudgetWarning = createBudgetWarning({ config, finance }),
 }) {
   const {
@@ -88,6 +103,7 @@ function registerFinanceHandlers(bot, {
     getRecentTransactions,
     searchTransactions,
     getTransactionById,
+    findRecentDuplicates,
   } = transactions;
   const {
     upsertBudget,
@@ -138,6 +154,27 @@ function registerFinanceHandlers(bot, {
     const categoryId = detectCategoryId(description, type);
     const user = await getUser(ctx.from.id);
     const sourceKey = `telegram:${ctx.chat.id}:${ctx.message.message_id}`;
+    const item = {
+      type, amount, categoryId, description,
+      personName: type === 'expense'
+        ? description.match(/^(?:biếu|tặng|cho)\s+(.+)$/iu)?.[1]?.trim().slice(0, 80) || null
+        : null,
+    };
+    const duplicates = await findRecentDuplicates({
+      ledgerId: ledger.id,
+      items: [item],
+      windowMinutes: 30,
+    });
+    if (duplicates.length) {
+      const token = createPending(ctx.from.id, {
+        kind: 'transactions', ledgerId: ledger.id, items: [item],
+        source: 'command', sourceKey, duplicateConfirmed: true,
+      });
+      return ctx.reply(duplicateText(duplicates), Markup.inlineKeyboard([
+        Markup.button.callback('✅ Vẫn lưu', `pending:save:${token}`),
+        Markup.button.callback('❌ Không lưu', `pending:cancel:${token}`),
+      ]));
+    }
     const saved = await createTransaction({
       userId: ctx.from.id,
       ledgerId: ledger.id,
@@ -145,9 +182,7 @@ function registerFinanceHandlers(bot, {
       amount,
       categoryId,
       description,
-      counterpartyName: type === 'expense'
-        ? description.match(/^(?:biếu|tặng|cho)\s+(.+)$/iu)?.[1]?.trim().slice(0, 80) || null
-        : null,
+      counterpartyName: item.personName,
       source: 'command',
       sourceKey,
     });
@@ -161,7 +196,8 @@ function registerFinanceHandlers(bot, {
       const budgetWarning = await getBudgetWarning(ledger.id);
       if (budgetWarning) comment += `${comment ? '\n' : ''}${budgetWarning}`;
     }
-    return sendSaved(ctx, saved, comment, ledger);
+    await sendSaved(ctx, saved, comment, ledger);
+    return suggestRecurring(ctx, transactions, saved, ledger.id);
   }
 
   bot.start(async (ctx) => {
@@ -176,6 +212,7 @@ function registerFinanceHandlers(bot, {
   bot.command('baocao', async (ctx) => {
     const input = getCommandArguments(ctx.message.text, 'baocao');
     const { month, year } = parseMonth(input, config.timezone);
+    conversationStore?.setReportPeriod(ctx.from.id, ctx.state.ledger.id, { month, year });
     const reportParams = {
       ledgerId: ctx.state.ledger.id, month, year, timezone: config.timezone,
     };
@@ -204,6 +241,7 @@ function registerFinanceHandlers(bot, {
     if (!access) {
       return ctx.answerCbQuery('Bạn không còn quyền xem sổ này.', { show_alert: true });
     }
+    conversationStore?.setReportPeriod(ctx.from.id, ledgerId, { month, year });
     const rows = await getMonthlyTransactions({
       ledgerId,
       month,
@@ -243,6 +281,7 @@ function registerFinanceHandlers(bot, {
     if (!access) {
       return ctx.answerCbQuery('Bạn không còn quyền xem sổ này.', { show_alert: true });
     }
+    conversationStore?.setReportPeriod(ctx.from.id, ledgerId, { month, year });
     const reportParams = { ledgerId, month, year, timezone: config.timezone };
     const [rows, budgetRows] = await Promise.all([
       getMonthlySummary(reportParams),

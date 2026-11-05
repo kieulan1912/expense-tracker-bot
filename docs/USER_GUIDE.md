@@ -50,7 +50,9 @@ Gia đình Lân & Thu · Vai trò: Thành viên
 
 Nhắc nhở được bật mặc định. Lúc 20:00 mỗi ngày, bot gửi tổng thu/chi trong ngày
 của sổ đang chọn và một câu nhắc thay đổi theo ngày để kiểm tra giao dịch còn
-thiếu. Chủ nhật và ngày cuối tháng có thêm báo cáo lũy kế. Các câu nhắc được
+thiếu. Chủ nhật bot gửi tổng kết tuần (so sánh tuần trước, danh mục tăng mạnh,
+khoản lớn nhất và dự báo thu–chi cuối tháng); ngày cuối tháng gửi báo cáo tháng.
+Các phép tính và câu nhắc được
 chọn local nên không dùng Gemini và không tốn AI quota. Dùng `/nhacnho off` để
 tắt toàn bộ thông báo tự động; `/nhacnho on` để bật lại.
 
@@ -100,12 +102,45 @@ Khoản có nhiều người nhận được tách thành các giao dịch riên
 tiền từng người và tổng cộng, sau đó yêu cầu xác nhận trước khi lưu. Nhờ vậy,
 nếu một người không nhận tiền thì chỉ cần hủy đúng giao dịch của người đó.
 
+Nếu một giao dịch cùng loại, số tiền và nội dung vừa được ghi trong vòng 30
+phút, bot cảnh báo có thể bị trùng. Chọn **Vẫn lưu** nếu đó là hai giao dịch
+thật sự khác nhau, hoặc **Không lưu** để bỏ bản nhập lại. Quy tắc áp dụng cho
+command, câu AI, ảnh hóa đơn và file sao kê.
+
+Khi cùng một khoản xuất hiện ở ít nhất ba tháng, số tiền/nội dung/danh mục giống
+nhau và ngày ghi gần nhau, bot gợi ý tạo định kỳ. Chọn **Tạo định kỳ** để nhận
+nhắc hàng tháng; đến kỳ vẫn phải bấm **Ghi khoản này**, nên bot không tự ý tạo
+chi tiêu.
+
 ### Dùng câu tự nhiên
 
 ```text
 Sáng nay ăn phở 50 nghìn
 Hôm qua nhận 2 triệu tiền thưởng
+Báo cáo tháng 10
+Tháng trước tôi chi bao nhiêu?
+Thế tháng trước nữa thì sao?
+Tại sao tháng 10 tôi chi nhiều thế?
+Tháng này tôi tốn bao nhiêu cho con nhỏ?
+Chi phí cho con tháng này tăng vì sao?
 ```
+
+Với báo cáo AI, bot lấy tháng/năm bạn nêu; nếu chỉ nêu tháng thì dùng năm
+hiện tại. Nếu không nhắc kỳ nào, bot dùng tháng hiện tại. Kỳ báo cáo gần nhất
+được giữ tối đa 30 phút theo từng người và từng sổ để hiểu câu nối tiếp như
+“thế tháng trước thì sao?”. Gemini chỉ xác định kỳ cần hỏi; phần tổng thu/chi
+được truy vấn và tính từ PostgreSQL trong sổ hiện tại.
+
+Với câu hỏi “tại sao” hoặc “chi nhiều vì đâu”, bot so sánh với tháng liền trước,
+tìm nhóm tăng mạnh, giao dịch lớn và khoản bất thường. Số liệu được tính trong
+PostgreSQL; Gemini chỉ biến phần tổng hợp đó thành nhận định dễ đọc. Nếu Gemini
+bận, bot vẫn trả toàn bộ số liệu phân tích bằng formatter local.
+
+Phân tích **chi cho con nhỏ** không thay đổi danh mục gốc của giao dịch. Bot
+nhận diện từ ghi chú như `cho con`, `sữa`, `bỉm`, `tã`, `ăn dặm`, `mầm non`,
+`nhà trẻ`, `khám nhi`… Vì vậy nên ghi mô tả rõ, ví dụ `/chi 450k bỉm cho bé`,
+thay vì chỉ ghi `/chi 450k mua đồ`. Bot luôn kèm lưu ý nếu kết quả dựa trên
+từ khóa, tránh coi con số ước lượng này là tuyệt đối.
 
 ### Dùng ảnh hóa đơn
 
@@ -113,6 +148,18 @@ Hôm qua nhận 2 triệu tiền thưởng
 2. Gửi ảnh JPEG, PNG, WebP, HEIC hoặc HEIF.
 3. Kiểm tra các giao dịch bot đọc được.
 4. Bấm xác nhận trước khi lưu.
+
+### Nhập sao kê ngân hàng
+
+1. Tải sao kê từ ngân hàng ở định dạng `.csv` hoặc `.xlsx`.
+2. Gửi file trực tiếp vào chat với bot khi đang chọn đúng sổ.
+3. Bot tự nhận cột ngày, nội dung, ghi nợ/ghi có hoặc số tiền và hiển thị preview.
+4. Kiểm tra tổng thu/chi và tối đa 8 dòng đầu, sau đó bấm **Lưu** hoặc **Hủy**.
+
+File tối đa 5 MB và 300 giao dịch. Bot xử lý file trong RAM, không gửi nội dung
+sao kê tới Gemini và không lưu file sau khi xử lý. Do mỗi ngân hàng có mẫu cột
+khác nhau, file nên có tiêu đề rõ như `Ngày`, `Nội dung`, `Ghi nợ`, `Ghi có`;
+nếu không nhận diện được, hãy xuất lại dạng CSV chuẩn từ ứng dụng ngân hàng.
 
 Phản hồi thành công phải chỉ rõ sổ đang ghi:
 
@@ -320,6 +367,10 @@ Sau khi bot trả tổng thu, tổng chi và chênh lệch thu–chi, bot hiển
 ngân sách tổng, số tiền còn lại và tỷ lệ đã dùng nếu sổ đã đặt ngân sách tổng
 cho tháng đó. Ngân sách theo danh mục không được cộng vào ngân sách tổng để
 tránh tính trùng.
+
+Nếu tốc độ chi hiện tại cho thấy ngân sách có thể bị vượt vào cuối tháng, bot
+hiển thị số tiền dự kiến vượt. Dự báo là phép ngoại suy theo số ngày đã qua,
+chạy trong PostgreSQL và không dùng AI quota.
 
 Bấm **📋 Xem chi tiết** để xem danh sách giao dịch ngay trong Telegram. Mỗi
 trang hiển thị tối đa 8 giao dịch; mỗi mục có mã, loại thu/chi, số tiền, ngày

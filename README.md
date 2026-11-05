@@ -48,17 +48,31 @@ domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ w
   tiền, ngày/tháng và người ghi; các điều kiện được kết hợp theo AND. Câu tự
   nhiên được Gemini chuyển thành cùng bộ lọc nhưng dữ liệu giao dịch vẫn chỉ
   được truy vấn trong PostgreSQL.
+- Hỏi báo cáo bằng ngôn ngữ tự nhiên theo đúng tháng/năm; bot giữ kỳ báo cáo
+  gần nhất theo user và sổ trong 30 phút để hiểu câu hỏi nối tiếp. Tổng thu/chi
+  luôn được tính từ PostgreSQL.
+- Hỏi “tại sao tháng 10 tôi chi nhiều?” để nhận phân tích so với tháng trước,
+  nhóm tăng mạnh, khoản lớn/bất thường. Có scope riêng cho chi phí con nhỏ dựa
+  trên mô tả như sữa, bỉm, mầm non, khám nhi hoặc “cho con”. PostgreSQL tính
+  số liệu; Gemini chỉ diễn đạt phần tổng hợp và có local fallback khi AI bận.
 - Báo cáo tháng có nút xem chi tiết trực tiếp trong Telegram, phân trang 8 giao
   dịch và hiển thị người ghi cho sổ chung.
 - Báo cáo phân biệt chênh lệch thu–chi với ngân sách còn lại; CSV định dạng số
   tiền theo hàng nghìn và có tổng thu, tổng chi, chênh lệch ở cuối file.
-- Ngân sách tổng/theo danh mục, hạn mức theo số ngày còn lại, cảnh báo 80%.
+- Ngân sách tổng/theo danh mục, hạn mức theo số ngày còn lại, cảnh báo 80% và
+  dự báo mức vượt cuối tháng theo tốc độ chi hiện tại (tính local/SQL).
 - Cảnh báo khoản chi bất thường dựa trên trung bình 30 ngày.
 - Công nợ phải thu/phải trả có nút trả một phần, tất toán và hủy; mọi thanh toán
   đều xác nhận, lưu lịch sử riêng và không bị tính nhầm thành thu nhập/chi tiêu.
-- Giao dịch định kỳ: bot nhắc và chỉ ghi khi người dùng xác nhận.
+- Bot chống ghi trùng trong 30 phút cho command, AI, OCR và sao kê; người dùng
+  có thể chọn **Vẫn lưu** khi đây thực sự là hai khoản khác nhau.
+- Bot nhận diện khoản giống nhau ở ít nhất 3 tháng và gợi ý tạo giao dịch định
+  kỳ. Đến kỳ bot vẫn chỉ ghi khi người dùng bấm **Ghi**.
 - Nhắc tự động mặc định bật: tổng kết thu chi mỗi ngày lúc 20:00, kèm lời nhắc
-  local thay đổi theo ngày; Chủ nhật/cuối tháng có thêm báo cáo lũy kế.
+  local thay đổi theo ngày; Chủ nhật có tổng kết tuần, so sánh tuần trước và dự
+  báo dòng tiền; cuối tháng có báo cáo tháng.
+- Nhập sao kê `.csv`/`.xlsx`: parse cục bộ trong RAM, preview tối đa 8 dòng và
+  xác nhận trước khi lưu (tối đa 300 giao dịch/file, 5 MB).
 - OCR hóa đơn JPEG, PNG, WebP, HEIC/HEIF có consent, không lưu ảnh.
 - Biểu đồ QuickChart là tùy chọn qua `/bieudo`.
 - Ba phong cách; mặc định hài hước nhưng không trêu chọc các khoản nhạy cảm.
@@ -118,8 +132,10 @@ Không commit `.env`, bot token, API key hoặc database URL. `GEMINI_API_KEY`
 chỉ được dùng ở runtime và không được ghi ra log.
 
 Quota trên được đề xuất cho hai người dùng: mỗi người tối đa 150 lượt text,
-10 lượt ảnh và toàn bot tối đa 300 lượt/ngày. `/chi`, `/thu`, `/tim`, báo cáo
-và các lệnh rõ ràng chạy local nên không tiêu lượt AI. Giới hạn thực tế của
+10 lượt ảnh và toàn bot tối đa 300 lượt/ngày. `/chi`, `/thu`, `/tim`, `/baocao`,
+import sao kê và câu báo cáo đơn giản như “báo cáo tháng 10” chạy local nên
+không tiêu lượt AI. Câu hỏi tài chính phức tạp mới dùng Gemini để chuyển thành
+tham số, còn số liệu luôn do PostgreSQL tính. Giới hạn thực tế của
 Gemini phụ thuộc project/tier; kiểm tra trang Rate limits trong Google AI Studio
 trước khi tăng tiếp.
 
@@ -178,6 +194,7 @@ Khoản thu dùng ID `91`–`94` cho Lương, Thưởng, Đầu tư và Kinh doa
 - Lệnh rõ ràng không gọi AI.
 - Không lưu prompt, response AI hoặc ảnh hóa đơn.
 - Ảnh Telegram được xử lý trong RAM và mặc định giới hạn 10 MB.
+- Sao kê CSV/XLSX được xử lý trong RAM, không gửi tới Gemini và không lưu file.
 - OCR chỉ hoạt động sau khi user đồng ý.
 - Báo cáo text không gọi dịch vụ ngoài; chỉ `/bieudo` gửi tổng hợp tới
   QuickChart.

@@ -33,9 +33,27 @@ async function getBudgets({ ledgerId, month, year }) {
 
 async function getBudgetStatus({ ledgerId, month, year, timezone }) {
   const result = await pool.query(
-    `SELECT b.category_id, b.amount,
-       COALESCE(SUM(t.amount), 0)::BIGINT AS spent
+    `WITH calendar AS (
+       SELECT EXTRACT(DAY FROM (
+         make_date($3, $2, 1) + INTERVAL '1 month - 1 day'
+       ))::INTEGER AS days_in_month,
+       CASE
+         WHEN EXTRACT(MONTH FROM CURRENT_TIMESTAMP AT TIME ZONE $4) = $2
+          AND EXTRACT(YEAR FROM CURRENT_TIMESTAMP AT TIME ZONE $4) = $3
+         THEN EXTRACT(DAY FROM CURRENT_TIMESTAMP AT TIME ZONE $4)::INTEGER
+         ELSE EXTRACT(DAY FROM (
+           make_date($3, $2, 1) + INTERVAL '1 month - 1 day'
+         ))::INTEGER
+       END AS days_elapsed
+     )
+     SELECT b.category_id, b.amount,
+       COALESCE(SUM(t.amount), 0)::BIGINT AS spent,
+       c.days_in_month, c.days_elapsed,
+       CASE WHEN c.days_elapsed > 0 THEN
+         ROUND(COALESCE(SUM(t.amount), 0) * c.days_in_month::NUMERIC / c.days_elapsed)::BIGINT
+       ELSE 0 END AS projected_spent
      FROM budgets b
+     CROSS JOIN calendar c
      LEFT JOIN financial_transactions t
        ON t.ledger_id = b.ledger_id
       AND t.transaction_type = 'expense'
@@ -44,7 +62,8 @@ async function getBudgetStatus({ ledgerId, month, year, timezone }) {
       AND EXTRACT(YEAR FROM t.occurred_at AT TIME ZONE $4) = b.year
       AND (b.category_id IS NULL OR t.category_id = b.category_id)
      WHERE b.ledger_id = $1 AND b.month = $2 AND b.year = $3
-     GROUP BY b.id ORDER BY b.category_id NULLS FIRST`,
+     GROUP BY b.id, c.days_in_month, c.days_elapsed
+     ORDER BY b.category_id NULLS FIRST`,
     [ledgerId, month, year, timezone],
   );
   return result.rows;

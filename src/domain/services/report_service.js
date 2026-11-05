@@ -16,10 +16,11 @@ function formatMonthlyReport(
   ledgerName = '',
   budgetRows = [],
   asOfDateParts = null,
+  scopeLabel = '',
 ) {
   const { incomeRows, expenseRows, income, expense } = summarizeRows(rows);
   const lines = [
-    `📊 BÁO CÁO THÁNG ${month}/${year}`,
+    `📊 BÁO CÁO THÁNG ${month}/${year}${scopeLabel ? ` · ${scopeLabel.toLocaleUpperCase('vi')}` : ''}`,
     ...(asOfDateParts
       ? [`🗓 Tính đến ngày ${asOfDateParts.day}/${asOfDateParts.month}/${asOfDateParts.year}`]
       : []),
@@ -132,6 +133,49 @@ function formatDailyReport(rows, dateParts, ledgerName = '', reminder = '') {
   return lines.join('\n');
 }
 
+function formatWeeklySummary(insights, dateParts, ledgerName = '') {
+  const current = insights.rows.filter((row) => row.period === 'current');
+  const previous = insights.rows.filter((row) => row.period === 'previous');
+  const total = (rows, type) => rows
+    .filter((row) => row.transaction_type === type)
+    .reduce((sum, row) => sum + Number(row.total), 0);
+  const currentIncome = total(current, 'income');
+  const currentExpense = total(current, 'expense');
+  const previousExpense = total(previous, 'expense');
+  const difference = currentExpense - previousExpense;
+  const expenseCategories = current.filter((row) => row.transaction_type === 'expense');
+  const previousByCategory = new Map(previous
+    .filter((row) => row.transaction_type === 'expense')
+    .map((row) => [Number(row.category_id), Number(row.total)]));
+  const rising = expenseCategories
+    .map((row) => ({
+      ...row,
+      increase: Number(row.total) - (previousByCategory.get(Number(row.category_id)) || 0),
+    }))
+    .filter((row) => row.increase > 0)
+    .sort((a, b) => b.increase - a.increase)[0];
+  const monthIncome = total(insights.month, 'income');
+  const monthExpense = total(insights.month, 'expense');
+  const daysInMonth = new Date(Date.UTC(dateParts.year, dateParts.month, 0)).getUTCDate();
+  const projectedIncome = Math.round(monthIncome / Math.max(1, dateParts.day) * daysInMonth);
+  const projectedExpense = Math.round(monthExpense / Math.max(1, dateParts.day) * daysInMonth);
+  const lines = [
+    `🗓 TỔNG KẾT TUẦN · đến ${dateParts.day}/${dateParts.month}/${dateParts.year}`,
+    ...(ledgerName ? [`📒 ${ledgerName}`] : []), '',
+    `Tổng thu tuần: ${formatMoney(currentIncome)}`,
+    `Tổng chi tuần: ${formatMoney(currentExpense)}`,
+    previousExpense > 0
+      ? `${difference > 0 ? '📈' : '📉'} So với tuần trước: ${difference > 0 ? 'tăng' : 'giảm'} ${formatMoney(Math.abs(difference))}`
+      : 'Tuần trước chưa có đủ dữ liệu để so sánh.',
+  ];
+  if (rising) lines.push(`Danh mục tăng mạnh: ${getCategoryName(rising.category_id)} (+${formatMoney(rising.increase)})`);
+  if (insights.largest) lines.push(`Khoản chi lớn nhất: ${formatMoney(insights.largest.amount)} · ${insights.largest.description}`);
+  lines.push('', '🔭 DỰ BÁO CUỐI THÁNG',
+    `Thu: ${formatMoney(projectedIncome)} · Chi: ${formatMoney(projectedExpense)}`,
+    `Chênh lệch dự kiến: ${formatMoney(projectedIncome - projectedExpense)}`);
+  return lines.join('\n');
+}
+
 function createChartUrl(rows, month, year) {
   const expenseRows = rows.filter((row) => row.transaction_type === 'expense');
   if (!expenseRows.length) return null;
@@ -158,6 +202,53 @@ function formatBudgetStatus(rows, dateParts) {
     lines.push(remaining >= 0
       ? `Còn ${formatMoney(remaining)} · khoảng ${formatMoney(Math.floor(remaining / remainingDays))}/ngày`
       : `⚠️ Vượt ${formatMoney(Math.abs(remaining))}`);
+    const projected = Number(row.projected_spent || row.spent);
+    if (projected > Number(row.amount) && Number(row.spent) < Number(row.amount)) {
+      lines.push(`📈 Dự báo cuối tháng: ${formatMoney(projected)} · có thể vượt ${formatMoney(projected - Number(row.amount))}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function formatBudgetForecast(rows) {
+  const warnings = rows.flatMap((row) => {
+    const budget = Number(row.amount);
+    const spent = Number(row.spent);
+    const projected = Number(row.projected_spent || spent);
+    if (projected <= budget || spent >= budget) return [];
+    const label = row.category_id === null ? 'tổng ngân sách' : getCategoryName(row.category_id);
+    return [`📈 Nếu giữ nhịp này, ${label} có thể vượt ${formatMoney(projected - budget)} vào cuối tháng.`];
+  });
+  return warnings.join('\n');
+}
+
+function formatSpendingInsights(insights) {
+  const { month, year } = insights.period;
+  const scopeLabel = insights.scope === 'child' ? 'CHI CHO CON NHỎ' : 'CHI TIÊU';
+  if (!insights.transactionCount) {
+    return insights.scope === 'child'
+      ? `📭 Chưa nhận diện được khoản chi cho con nhỏ trong tháng ${month}/${year}. Hãy ghi rõ “cho con”, “sữa”, “bỉm”, “học phí bé”… để bot phân tích chính xác hơn.`
+      : `📭 Chưa có khoản chi trong tháng ${month}/${year}.`;
+  }
+  const comparison = insights.previousTotal > 0
+    ? `${insights.change >= 0 ? 'tăng' : 'giảm'} ${formatMoney(Math.abs(insights.change))} (${Math.abs(insights.changePercent)}%) so với ${insights.previousPeriod.month}/${insights.previousPeriod.year}`
+    : `tháng ${insights.previousPeriod.month}/${insights.previousPeriod.year} chưa có dữ liệu đối chiếu`;
+  const lines = [
+    `🔎 PHÂN TÍCH ${scopeLabel} THÁNG ${month}/${year}`,
+    '',
+    `Tổng: ${formatMoney(insights.total)} · ${insights.transactionCount} giao dịch`,
+    `So sánh: ${comparison}.`,
+  ];
+  if (insights.categories.length) {
+    lines.push('', 'Nhóm đóng góp nhiều nhất:', ...insights.categories.slice(0, 3).map((row) =>
+      `• ${row.category}: ${formatMoney(row.total)}${row.change > 0 ? ` · tăng ${formatMoney(row.change)}` : ''}`));
+  }
+  if (insights.topTransactions.length) {
+    lines.push('', 'Khoản lớn nhất:', ...insights.topTransactions.slice(0, 3).map((row) =>
+      `• ${formatMoney(row.amount)} · ${row.description} · ${row.date}`));
+  }
+  if (insights.scope === 'child') {
+    lines.push('', 'ℹ️ Nhóm “cho con” được nhận diện từ nội dung giao dịch; các ghi chú quá chung có thể chưa được tính.');
   }
   return lines.join('\n');
 }
@@ -166,7 +257,10 @@ module.exports = {
   summarizeRows,
   formatMonthlyReport,
   formatDailyReport,
+  formatWeeklySummary,
   selectDailyReminder,
   createChartUrl,
   formatBudgetStatus,
+  formatBudgetForecast,
+  formatSpendingInsights,
 };

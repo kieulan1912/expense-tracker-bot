@@ -2,6 +2,8 @@ const { Markup } = require('telegraf');
 const {
   formatMonthlyReport,
   formatDailyReport,
+  formatWeeklySummary,
+  formatBudgetForecast,
   selectDailyReminder,
 } = require('../../domain/services/report_service');
 const { formatMoney } = require('../../utils/amount');
@@ -17,7 +19,7 @@ function createScheduler({ config, finance, users, transactions }) {
     getBudgetStatus,
   } = finance;
   const { getReminderUsers } = users;
-  const { getMonthlySummary, getDailySummary } = transactions;
+  const { getMonthlySummary, getDailySummary, getWeeklyInsights } = transactions;
 
 function localDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -63,11 +65,19 @@ async function runDailyJobs(telegram, date = new Date()) {
   for (const user of users) {
     if (!user.active_ledger_id) continue;
     const timezone = user.timezone || config.timezone;
-    const rows = await getDailySummary({
-      ledgerId: user.active_ledger_id,
-      date: isoDate,
-      timezone,
-    });
+    const [rows, budgetRows] = await Promise.all([
+      getDailySummary({
+        ledgerId: user.active_ledger_id,
+        date: isoDate,
+        timezone,
+      }),
+      getBudgetStatus({
+        ledgerId: user.active_ledger_id,
+        month: now.month,
+        year: now.year,
+        timezone,
+      }),
+    ]);
     const reminder = selectDailyReminder(
       user.personality,
       now,
@@ -76,14 +86,32 @@ async function runDailyJobs(telegram, date = new Date()) {
     );
     await telegram.sendMessage(
       user.chat_id,
-      formatDailyReport(rows, now, user.active_ledger_name, reminder),
+      [
+        formatDailyReport(rows, now, user.active_ledger_name, reminder),
+        formatBudgetForecast(budgetRows),
+      ].filter(Boolean).join('\n\n'),
     ).catch((error) => {
       console.error('Không thể gửi báo cáo hằng ngày:', error.message);
     });
   }
 
+  if (now.weekday === 'Sun') {
+    for (const user of users) {
+      if (!user.active_ledger_id) continue;
+      const insights = await getWeeklyInsights({
+        ledgerId: user.active_ledger_id,
+        date: isoDate,
+        timezone: user.timezone || config.timezone,
+      });
+      await telegram.sendMessage(
+        user.chat_id,
+        formatWeeklySummary(insights, now, user.active_ledger_name),
+      ).catch((error) => console.error('Không thể gửi tổng kết tuần:', error.message));
+    }
+  }
+
   const lastDay = new Date(now.year, now.month, 0).getDate();
-  if (now.weekday !== 'Sun' && now.day !== lastDay) return;
+  if (now.day !== lastDay) return;
   for (const user of users) {
     if (!user.active_ledger_id) continue;
     const reportParams = { ledgerId: user.active_ledger_id, month: now.month, year: now.year, timezone: user.timezone };
@@ -92,10 +120,9 @@ async function runDailyJobs(telegram, date = new Date()) {
       getBudgetStatus(reportParams),
     ]);
     if (!rows.length) continue;
-    const prefix = now.day === lastDay ? '🗓 Tổng kết cuối tháng\n\n' : '🗓 Điểm lại tuần này (lũy kế tháng)\n\n';
     await telegram.sendMessage(
       user.chat_id,
-      prefix + formatMonthlyReport(
+      '🗓 Tổng kết cuối tháng\n\n' + formatMonthlyReport(
         rows, now.month, now.year, user.active_ledger_name, budgetRows, now,
       ),
     ).catch((error) => {

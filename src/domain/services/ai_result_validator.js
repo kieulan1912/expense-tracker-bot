@@ -10,6 +10,7 @@ const INTENTS = Object.freeze([
   'TRANSACTION_CANCEL',
   'BUDGET_SET',
   'REPORT_REQ',
+  'SPENDING_INSIGHT',
   'HISTORY_REQ',
   'SEARCH_REQ',
   'UNKNOWN',
@@ -87,6 +88,36 @@ function validateResult(raw) {
   if (filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo) {
     throw new Error('Gemini trả về khoảng ngày không hợp lệ');
   }
+  const reportMonth = raw.report_month === null || raw.report_month === undefined
+    ? null
+    : Number(raw.report_month);
+  const reportYear = raw.report_year === null || raw.report_year === undefined
+    ? null
+    : Number(raw.report_year);
+  const reportType = ['expense', 'income'].includes(raw.report_type)
+    ? raw.report_type
+    : null;
+  const reportCategoryId = raw.report_category_id === null || raw.report_category_id === undefined
+    ? null
+    : Number(raw.report_category_id);
+  const reportCategoryIds = new Set([1, 2, 3, 4, 5, 6, 7, 91, 92, 93, 94, 99]);
+  if ((reportMonth !== null && (!Number.isInteger(reportMonth) || reportMonth < 1 || reportMonth > 12))
+    || (reportYear !== null && (!Number.isInteger(reportYear) || reportYear < 2000 || reportYear > 9999))) {
+    throw new Error('Gemini trả về kỳ báo cáo không hợp lệ');
+  }
+  if (reportCategoryId !== null
+    && !reportCategoryIds.has(reportCategoryId)) {
+    throw new Error('Gemini trả về danh mục báo cáo không hợp lệ');
+  }
+  const normalizedReportCategoryId = reportCategoryIds.has(reportCategoryId)
+    ? reportCategoryId
+    : null;
+  const normalizedReportType = normalizedReportCategoryId >= 91
+    && normalizedReportCategoryId <= 94
+    ? 'income'
+    : normalizedReportCategoryId !== null && normalizedReportCategoryId !== 99
+      ? 'expense'
+      : reportType;
   return {
     intent: raw.intent,
     reply: String(raw.reply || '').trim().slice(0, 180),
@@ -96,6 +127,13 @@ function validateResult(raw) {
       ? null
       : Math.max(1, Math.min(20, Number(raw.limit) || 10)),
     filters,
+    reportPeriod: {
+      month: reportMonth,
+      year: reportYear,
+      transactionType: normalizedReportType,
+      categoryId: normalizedReportCategoryId,
+    },
+    insightScope: raw.insight_scope === 'child' ? 'child' : 'all',
     items,
   };
 }

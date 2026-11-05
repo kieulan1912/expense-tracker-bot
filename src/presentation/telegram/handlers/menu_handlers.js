@@ -22,6 +22,7 @@ function registerMenuHandlers(bot, {
   users,
   ai,
   forgetUser,
+  conversationStore,
 }) {
   const {
     getMonthlySummary,
@@ -138,6 +139,7 @@ function registerMenuHandlers(bot, {
   bot.action('report:current', async (ctx) => {
     await ctx.answerCbQuery();
     const { month, year } = getCurrentMonth(config.timezone);
+    conversationStore?.setReportPeriod(ctx.from.id, ctx.state.ledger.id, { month, year });
     const reportParams = { ledgerId: ctx.state.ledger.id, month, year, timezone: config.timezone };
     const [rows, budgetRows] = await Promise.all([
       getMonthlySummary(reportParams),
@@ -227,6 +229,7 @@ function registerMenuHandlers(bot, {
       return ctx.editMessageText(`⛔ Bạn đang sở hữu ${result.sharedLedgers} sổ chung. Hãy chuyển sang từng sổ và dùng /xoaso trước.`);
     }
     forgetUser(ctx.from.id);
+    conversationStore?.clearUser(ctx.from.id);
     await ctx.answerCbQuery('Đã xóa');
     return ctx.editMessageText('🗑 Đã xóa sổ cá nhân, cài đặt và quyền thành viên của bạn. Dữ liệu đã ghi trong sổ chung vẫn thuộc sổ đó.');
   });
