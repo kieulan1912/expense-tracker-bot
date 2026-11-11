@@ -90,7 +90,8 @@ target_id là ID được người dùng nói rõ; nếu không có thì null. V
 Giọng mặc định hài hước nhưng tuyệt đối không trêu chọc sức khỏe, giáo dục, gia đình hoặc từ thiện. reply tối đa 180 ký tự. description tối đa 40 ký tự.
 Ngày hiện tại và múi giờ được cung cấp trong input. Nếu không nói ngày, occurred_at là null. confidence từ 0 đến 1. OCR và thông tin mơ hồ luôn needs_confirmation=true.`;
 
-const GEMINI_REQUEST_TIMEOUT_MS = 12_000;
+const GEMINI_REQUEST_TIMEOUT_MS = 9_000;
+const GEMINI_TOTAL_TIMEOUT_MS = 18_000;
 
 function isTemporaryProviderError(error) {
   return error?.status === 429
@@ -104,6 +105,79 @@ function createGeminiAiGateway({
   pool,
   fetchImpl = fetch,
 }) {
+const modelCooldowns = new Map();
+
+function configuredModels() {
+  return [...new Set([config.geminiModel, ...config.geminiFallbackModels].filter(Boolean))];
+}
+
+function availableModels(now = Date.now()) {
+  const models = configuredModels();
+  const available = models.filter((model) => (modelCooldowns.get(model) || 0) <= now);
+  if (available.length) return available;
+  // Nếu tất cả model đều đang cooldown, thử model sắp hết hạn sớm nhất thay vì
+  // làm AI ngừng hoàn toàn trong cả khoảng cooldown.
+  return [...models].sort((left, right) =>
+    (modelCooldowns.get(left) || 0) - (modelCooldowns.get(right) || 0)).slice(0, 1);
+}
+
+function markModelUnavailable(model, error) {
+  let cooldownMs = 0;
+  if (error?.status === 404) cooldownMs = 6 * 60 * 60 * 1000;
+  else if (error?.status === 429) cooldownMs = 60 * 1000;
+  else if (isTemporaryProviderError(error)) cooldownMs = 30 * 1000;
+  if (cooldownMs) modelCooldowns.set(model, Date.now() + cooldownMs);
+}
+
+async function requestWithModelFallback({ body, parsePayload, requestLabel }) {
+  const startedAt = Date.now();
+  const models = availableModels(startedAt);
+  let lastError;
+
+  for (const [modelIndex, modelName] of models.entries()) {
+    const remainingMs = GEMINI_TOTAL_TIMEOUT_MS - (Date.now() - startedAt);
+    if (remainingMs < 500) break;
+    try {
+      const response = await fetchImpl(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiApiKey },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(Math.min(GEMINI_REQUEST_TIMEOUT_MS, remainingMs)),
+        },
+      );
+      if (!response.ok) {
+        const providerBody = await response.json().catch(() => ({}));
+        const providerMessage = String(providerBody.error?.message || '')
+          .replace(/\s+/g, ' ')
+          .slice(0, 300);
+        const error = new Error(
+          `${requestLabel} ${modelName} HTTP ${response.status}${providerMessage ? `: ${providerMessage}` : ''}`,
+        );
+        error.status = response.status;
+        throw error;
+      }
+      const payload = await response.json();
+      const result = parsePayload(payload, modelName);
+      modelCooldowns.delete(modelName);
+      return result;
+    } catch (error) {
+      lastError = error;
+      const canFallback = error.status === 404 || isTemporaryProviderError(error);
+      if (!canFallback) throw error;
+      markModelUnavailable(modelName, error);
+      const nextModel = models[modelIndex + 1];
+      if (nextModel) {
+        console.warn(
+          `${requestLabel} ${modelName} thất bại (${error.status || error.name || 'network'}), đang chuyển sang ${nextModel}`,
+        );
+      }
+    }
+  }
+  throw lastError || new Error(`${requestLabel} không còn model khả dụng`);
+}
+
 async function reserveUsage(userId, requestType) {
   const perUserLimit = requestType === 'image'
     ? config.aiImageDailyLimit
@@ -184,48 +258,15 @@ async function requestGemini(contents) {
       maxOutputTokens: 1024,
     },
   };
-  let lastError;
-  const models = [...new Set([config.geminiModel, ...config.geminiFallbackModels])];
-
-  for (const [modelIndex, modelName] of models.entries()) {
-    const model = encodeURIComponent(modelName);
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-
-    try {
-      const response = await fetchImpl(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiApiKey },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
-      });
-      if (!response.ok) {
-        const providerBody = await response.json().catch(() => ({}));
-        const providerMessage = String(providerBody.error?.message || '')
-          .replace(/\s+/g, ' ')
-          .slice(0, 300);
-        const error = new Error(
-          `Gemini model ${modelName} HTTP ${response.status}${providerMessage ? `: ${providerMessage}` : ''}`,
-        );
-        error.status = response.status;
-        throw error;
-      }
-      const payload = await response.json();
+  return requestWithModelFallback({
+    body,
+    requestLabel: 'Gemini model',
+    parsePayload(payload, modelName) {
       const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) throw new Error(`Gemini model ${modelName} không trả về nội dung`);
       return validateResult(JSON.parse(text));
-    } catch (error) {
-      lastError = error;
-      const hasFallback = modelIndex < models.length - 1;
-      if (hasFallback && (error.status === 404 || isTemporaryProviderError(error))) {
-        console.warn(
-          `Gemini model ${modelName} thất bại (${error.status || error.name || 'network'}), đang chuyển sang ${models[modelIndex + 1]}`,
-        );
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw lastError;
+    },
+  });
 }
 
 async function requestGeminiNarrative(prompt) {
@@ -234,36 +275,15 @@ async function requestGeminiNarrative(prompt) {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: { temperature: 0.3, maxOutputTokens: 500 },
   };
-  let lastError;
-  const models = [...new Set([config.geminiModel, ...config.geminiFallbackModels])];
-  for (const [modelIndex, modelName] of models.entries()) {
-    try {
-      const response = await fetchImpl(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiApiKey },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
-        },
-      );
-      if (!response.ok) {
-        const providerBody = await response.json().catch(() => ({}));
-        const error = new Error(`Gemini narrative ${modelName} HTTP ${response.status}: ${String(providerBody.error?.message || '').slice(0, 200)}`);
-        error.status = response.status;
-        throw error;
-      }
-      const payload = await response.json();
+  return requestWithModelFallback({
+    body,
+    requestLabel: 'Gemini narrative',
+    parsePayload(payload, modelName) {
       const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim();
       if (!text) throw new Error(`Gemini narrative ${modelName} không trả nội dung`);
       return text.slice(0, 1800);
-    } catch (error) {
-      lastError = error;
-      if (modelIndex < models.length - 1 && (error.status === 404 || isTemporaryProviderError(error))) continue;
-      throw error;
-    }
-  }
-  throw lastError;
+    },
+  });
 }
 
 function assertAiConfigured() {

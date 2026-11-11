@@ -77,6 +77,9 @@ domain use cases, PostgreSQL/Gemini nằm trong data adapters, còn toàn bộ w
 - Biểu đồ QuickChart là tùy chọn qua `/bieudo`.
 - Ba phong cách; mặc định hài hước nhưng không trêu chọc các khoản nhạy cảm.
 - Quota AI theo user/toàn hệ thống, timeout, retry một lần và local fallback.
+- Gemini mặc định dùng `3.1 Flash-Lite`, fallback sang `3.5 Flash-Lite` rồi
+  `3.6 Flash`; model lỗi được cooldown tạm thời và mỗi request có ngân sách chờ
+  tối đa khoảng 18 giây.
 - Sổ chung cho 3–5 người với quyền owner/member/viewer, lời mời có hạn và menu
   theo vai trò.
 - Telegram chỉ hiển thị tám command chính (gồm `/tim` và `/export`); các chức năng nâng cao nằm trong
@@ -112,8 +115,8 @@ Các biến tùy chọn và giá trị mặc định:
 
 ```env
 ALLOWED_USER_IDS=
-GEMINI_MODEL=gemini-2.5-flash-lite
-GEMINI_FALLBACK_MODELS=gemini-3.5-flash-lite,gemini-3.8-flash
+GEMINI_MODEL=gemini-3.1-flash-lite
+GEMINI_FALLBACK_MODELS=gemini-3.5-flash-lite,gemini-3.6-flash
 AI_ENABLED=true
 AI_TEXT_DAILY_LIMIT_PER_USER=150
 AI_IMAGE_DAILY_LIMIT_PER_USER=10
